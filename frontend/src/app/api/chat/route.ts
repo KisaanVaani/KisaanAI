@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { Mistral } from '@mistralai/mistralai';
 import { PrismaClient } from '@prisma/client';
-import { getContextualPrompt } from '../../../../../../backend/lib/orchestrator';
-import { textToSpeech } from '../../../../../../backend/lib/sarvam';
+import { getContextualPrompt } from '../../../lib/orchestrator';
+import { textToSpeech } from '../../../lib/sarvam';
 
 const prisma = new PrismaClient();
 const apiKey = process.env.MISTRAL_API_KEY || '';
