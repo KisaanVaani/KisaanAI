@@ -1,0 +1,1 @@
+{"error":{"message":"Pitch and loudness parameters are currently not supported for the Bulbul V3 model. Please do not pass these values.","code":"invalid_request_error","request_id":"20260325_fa50c81c-60cc-4b2e-9700-3659b6bc7172"}}
