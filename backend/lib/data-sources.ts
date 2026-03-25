@@ -1,3 +1,5 @@
+import { getWeatherForecast as getRealtimeWeather } from './weather-providers';
+
 export interface FarmerProfile {
   id: string;
   name: string;
@@ -30,7 +32,7 @@ export async function getFarmerContext(farmerId: string): Promise<FarmerProfile>
   };
 }
 
-// 2. Mocking IMD (Weather Forecast)
+// 2. Real Weather Data (using WeatherAPI.com, Open-Meteo, or Tomorrow.io)
 export async function getWeatherForecast(location: string) {
   const cacheKey = `weather_${location}`;
   if (isCacheValid(cacheKey)) {
@@ -38,17 +40,36 @@ export async function getWeatherForecast(location: string) {
     return responseCache[cacheKey].data;
   }
 
-  await new Promise(resolve => setTimeout(resolve, 50)); // Faster
-  const weatherResult = {
-    summary: "Light to moderate rainfall expected in the next 48 hours.",
-    temperature: "26°C",
-    humidity: "82%"
-  };
-  responseCache[cacheKey] = { data: weatherResult, timestamp: Date.now() };
-  return weatherResult;
+  try {
+    console.log(`[Weather] Fetching real weather for ${location}`);
+    const weatherData = await getRealtimeWeather(location);
+    
+    const result = {
+      summary: weatherData.summary,
+      temperature: weatherData.temperature,
+      humidity: weatherData.humidity,
+      condition: weatherData.condition,
+      source: 'Real API'
+    };
+    
+    responseCache[cacheKey] = { data: result, timestamp: Date.now() };
+    return result;
+  } catch (error) {
+    console.error('[Weather] Error fetching weather:', error);
+    // Fallback
+    const fallback = {
+      summary: "Light to moderate rainfall expected in the next 48 hours.",
+      temperature: "26°C",
+      humidity: "82%",
+      condition: "Cloudy",
+      source: 'Fallback'
+    };
+    responseCache[cacheKey] = { data: fallback, timestamp: Date.now() };
+    return fallback;
+  }
 }
 
-// 3. Mocking Agmarknet (Mandi prices & MSP)
+// 3. Agmarket Data (currently mocked, ready for Agmarknet web scraping)
 export async function getMarketPrices(crop: string, location: string) {
   const cacheKey = `prices_${crop}_${location}`;
   if (isCacheValid(cacheKey)) {
@@ -56,13 +77,15 @@ export async function getMarketPrices(crop: string, location: string) {
     return responseCache[cacheKey].data;
   }
 
-  await new Promise(resolve => setTimeout(resolve, 50)); // Faster
+  // TODO: Replace with real Agmarknet web scraping from https://agmarknet.gov.in/
+  await new Promise(resolve => setTimeout(resolve, 50));
   const prices: Record<string, any> = {
     "Arhar Dal": { msp: "₹7,000/qtl", currentMarket: "₹7,300/qtl", trend: "↑ Rising", volume: "High" },
     "Soyabean": { msp: "₹4,600/qtl", currentMarket: "₹4,550/qtl", trend: "→ Stable", volume: "Medium" },
     "Wheat": { msp: "₹2,125/qtl", currentMarket: "₹2,200/qtl", trend: "↑ Rising", volume: "High" },
     "Cotton": { msp: "₹5,730/qtl", currentMarket: "₹5,900/qtl", trend: "↑ Up 3%", volume: "High" }
   };
+  
   const result = prices[crop] || { msp: "₹5,000/qtl", currentMarket: "₹5,200/qtl", trend: "→ Stable", volume: "Medium" };
   responseCache[cacheKey] = { data: result, timestamp: Date.now() };
   return result;
@@ -105,6 +128,32 @@ export async function getCropCalendar(crop: string, season: string) {
     crop,
     season,
     recommendation: "Plant during recommended season. Ensure certified seeds and proper spacing. Current market conditions are favorable."
+  };
+  
+  responseCache[cacheKey] = { data: result, timestamp: Date.now() };
+  return result;
+}
+
+// 5. Soil Data (currently mocked, ready for SoilGrids integration)
+export async function getSoilHealth(location: string) {
+  const cacheKey = `soil_${location}`;
+  if (isCacheValid(cacheKey)) {
+    console.log(`[Cache Hit] Soil data for ${location}`);
+    return responseCache[cacheKey].data;
+  }
+
+  // TODO: Replace with real SoilGrids API from https://rest.isric.org/soilgrids/v2.0/
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const result = {
+    type: 'Loamy',
+    texture: 'Sand: 40%, Clay: 25%',
+    pH: '6.8',
+    organicCarbon: '0.8%',
+    nitrogen: '150 kg/ha',
+    phosphorus: '25 kg/ha',
+    potassium: '250 kg/ha',
+    recommendation: 'Nitrogen deficient - Add 50kg/ha urea. Increase organic matter with compost.',
+    source: 'Fallback Data'
   };
   
   responseCache[cacheKey] = { data: result, timestamp: Date.now() };

@@ -1,463 +1,284 @@
-"use client";
+'use client'
 
-import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, Volume2, Loader2, Phone, PhoneOff } from "lucide-react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from 'react'
+import { motion, useInView } from 'framer-motion'
+import { Mic, MicOff, Phone, PhoneOff, Volume2 } from 'lucide-react'
 
-type Language = "en-IN" | "hi-IN" | "kn-IN";
+interface Message {
+  id: string
+  role: 'USER' | 'ASSISTANT'
+  content: string
+  timestamp: Date
+}
 
 export default function LiveAgent() {
-  const [isCalling, setIsCalling] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [aiResponse, setAiResponse] = useState("Hi! I am Kisaan AI. How can I assist you with your farming today?");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>("en-IN");
+  const [isCallActive, setIsCallActive] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [inputMessage, setInputMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
-  // Use refs for speech APIs to avoid re-renders
-  const recognitionRef = useRef<any>(null);
-  const synthesisRef = useRef<SpeechSynthesis | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const isRecognitionActiveRef = useRef(false);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const headerRef = useRef(null)
+  const headerInView = useInView(headerRef, { once: true, margin: '-50px' })
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   useEffect(() => {
-    // Initialize Speech Synthesis
-    if (typeof window !== "undefined") {
-      synthesisRef.current = window.speechSynthesis;
-      
-      console.log("[Init] Speech Synthesis initialized");
-      
-      // Force load voices
-      const loadVoices = () => {
-        if (synthesisRef.current) {
-          const voices = synthesisRef.current.getVoices();
-          console.log(`[Init] Voices loaded: ${voices.length}`);
-          
-          if (voices.length === 0) {
-            console.warn("[Init] No voices yet, scheduling retry...");
-            setTimeout(loadVoices, 100);
-          }
-        }
-      };
-      
-      // Load voices immediately
-      loadVoices();
-      
-      // Also listen for voiceschanged event
-      if (synthesisRef.current?.onvoiceschanged !== undefined) {
-        synthesisRef.current.onvoiceschanged = () => {
-          console.log("[Init] onvoiceschanged event fired, voices now available");
-        };
-      }
-      
-      // Initialize Speech Recognition
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
-        recognitionRef.current.lang = selectedLanguage;
+    scrollToBottom()
+  }, [messages])
 
-        recognitionRef.current.onstart = () => {
-          isRecognitionActiveRef.current = true;
-          setIsListening(true);
-        };
-
-        recognitionRef.current.onresult = async (event: any) => {
-          const currentText = event.results[0][0].transcript;
-          setTranscript(currentText);
-          isRecognitionActiveRef.current = false;
-          setIsListening(false);
-          await handleAudioSubmit(currentText);
-        };
-
-        recognitionRef.current.onerror = (event: any) => {
-          console.error("Speech recognition error", event.error);
-          isRecognitionActiveRef.current = false;
-          setIsListening(false);
-        };
-        
-        recognitionRef.current.onend = () => {
-          isRecognitionActiveRef.current = false;
-          setIsListening(false);
-        };
-      } else {
-        console.warn("Speech Recognition API not supported in this browser.");
-      }
-    }
-  }, [selectedLanguage]);
-
-  const handleStartCall = () => {
-    setIsCalling(true);
-    isRecognitionActiveRef.current = false;
-    
-    // Prime the speech synthesis engine on user click
-    if (typeof window !== "undefined" && 'speechSynthesis' in window) {
-      window.speechSynthesis.resume();
-      const dummy = new SpeechSynthesisUtterance('');
-      dummy.volume = 0;
-      window.speechSynthesis.speak(dummy);
-    }
-    
-    playAudio(aiResponse, null); // Intro greeting using fallback
-  };
-
-  const handleEndCall = () => {
-    setIsCalling(false);
-    setIsListening(false);
-    setIsSpeaking(false);
-    isRecognitionActiveRef.current = false;
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (error) {
-        console.error("Error stopping recognition:", error);
-      }
-    }
-    if (synthesisRef.current) {
-      synthesisRef.current.cancel();
-      setIsSpeaking(false);
-    }
-  };
-
-  const startListening = () => {
-    if (recognitionRef.current && isCalling && !isRecognitionActiveRef.current) {
-      if(synthesisRef.current?.speaking){
-        synthesisRef.current.cancel();
-        setIsSpeaking(false);
-      }
-      
-      // Prime the speech synthesis engine on user click to bypass autoplay restrictions
-      if ('speechSynthesis' in window) {
-         const dummy = new SpeechSynthesisUtterance('');
-         dummy.volume = 0;
-         window.speechSynthesis.speak(dummy);
-      }
-
-      try {
-        isRecognitionActiveRef.current = true;
-        recognitionRef.current.start();
-      } catch (error) {
-        console.error("Error starting recognition:", error);
-        isRecognitionActiveRef.current = false;
-      }
-    }
-  };
-
-  const handleAudioSubmit = async (text: string) => {
-    setIsProcessing(true);
+  const startCall = async () => {
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          transcript: text,
-          language: selectedLanguage 
-        }),
-      });
+      setIsLoading(true)
+      const response = await fetch(`${API_URL}/api/conversations/start-call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: '896',
+          language: 'hindi'
+        })
+      })
 
-      const data = await response.json();
-      if (data.reply) {
-        setAiResponse(data.reply);
-        // Play audio with small delay
-        setTimeout(() => {
-          playAudio(data.reply, data.audio);
-        }, 100);
-      } else {
-         setAiResponse("Sorry, I could not understand that.");
-         setTimeout(() => {
-           playAudio("Sorry, I could not understand that.", null);
-         }, 100);
-      }
+      const data = await response.json()
+      setConversationId(data.conversation.id)
+      setIsCallActive(true)
+
+      setMessages([{
+        id: '1',
+        role: 'ASSISTANT',
+        content: data.greeting,
+        timestamp: new Date()
+      }])
     } catch (error) {
-       console.error("Backend error", error);
-       setAiResponse("There was an error connecting to Kisaan AI.");
-       setTimeout(() => {
-         playAudio("There was an error connecting to Kisaan AI.", null);
-       }, 100);
+      console.error('Failed to start call:', error)
+      alert('Failed to connect. Make sure backend is running on port 8000')
     } finally {
-      setIsProcessing(false);
+      setIsLoading(false)
     }
-  };
+  }
 
-  const playAudio = async (text: string, audioBase64: string | null) => {
-    console.log("[Audio] playAudio called, hasAudio:", !!audioBase64);
-    
-    // If we have Sarvam audio, play it
-    if (audioBase64) {
+  const endCall = async () => {
+    if (conversationId) {
       try {
-        setIsSpeaking(true);
-        const audioUrl = `data:audio/wav;base64,${audioBase64}`;
-        
-        if (!audioRef.current) {
-          audioRef.current = new Audio();
-        }
-        
-        audioRef.current.onplay = () => {
-          console.log("[Audio] ✓ Audio playing through Sarvam");
-          setIsSpeaking(true);
-        };
-        
-        audioRef.current.onended = () => {
-          console.log("[Audio] ✓ Audio finished");
-          setIsSpeaking(false);
-        };
-        
-        audioRef.current.onerror = (e) => {
-          console.error("[Audio] Error playing audio:", e);
-          setIsSpeaking(false);
-          // Fallback to browser speech
-          fallbackToWebSpeech(text);
-        };
-        
-        audioRef.current.src = audioUrl;
-        await audioRef.current.play();
-        console.log("[Audio] ✓ Sarvam audio started playing");
-        
+        await fetch(`${API_URL}/api/conversations/end-call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId })
+        })
       } catch (error) {
-        console.error("[Audio] Error with Sarvam audio:", error);
-        setIsSpeaking(false);
-        // Fallback to browser speech
-        fallbackToWebSpeech(text);
+        console.error('Failed to end call:', error)
       }
-    } else {
-      // Fallback to browser Web Speech API
-      fallbackToWebSpeech(text);
     }
-  };
+    setIsCallActive(false)
+    setConversationId(null)
+    setMessages([])
+  }
 
-  const fallbackToWebSpeech = (text: string) => {
-    console.log("[Speech Fallback] Using browser Web Speech API");
-    speak(text);
-  };
+  const sendMessage = async () => {
+    if (!inputMessage.trim() || !conversationId) return
 
-  const speak = (text: string) => {
-    if (!('speechSynthesis' in window)) {
-      console.error("[Speech] Synthesis API not available");
-      return;
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'USER',
+      content: inputMessage,
+      timestamp: new Date()
     }
 
-    const synth = window.speechSynthesis;
-    console.log(`[Speech] Starting speech synthesis. Language: ${selectedLanguage}, Text length: ${text.length}`);
+    setMessages(prev => [...prev, userMessage])
+    setInputMessage('')
+    setIsLoading(true)
 
     try {
-      // Immediately set speaking state
-      setIsSpeaking(true);
+      const response = await fetch(`${API_URL}/api/conversations/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          message: inputMessage,
+          role: 'USER'
+        })
+      })
 
-      // Clear any pending speech (crucial for some browsers)
-      console.log("[Speech] Canceling any current speech");
-      synth.cancel();
+      const data = await response.json()
 
-      // Create new utterance
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      // Store in global window object to prevent Chrome garbage collection bug
-      (window as any)._currentUtterance = utterance;
-      
-      // Get available voices
-      const voices = synth.getVoices();
-      console.log(`[Speech] Total available voices: ${voices.length}`);
-      
-      if (voices.length === 0) {
-        console.warn("[Speech] No voices available yet, checking again in 500ms...");
-        setTimeout(() => speak(text), 500);
-        return;
+      const aiMessage: Message = {
+        id: data.assistantMessage.id,
+        role: 'ASSISTANT',
+        content: data.aiResponse,
+        timestamp: new Date(data.assistantMessage.timestamp)
       }
-      
-      // Find best voice for language
-      let selectedVoice = null;
-      const langPrefix = selectedLanguage.split('-')[0]; // 'en', 'hi', 'kn'
-      
-      // Try exact match, then rough language match, then name match
-      selectedVoice = voices.find(v => v.lang === selectedLanguage) || 
-                      voices.find(v => v.lang.startsWith(langPrefix)) ||
-                      voices.find(v => v.name.toLowerCase().includes(langPrefix));
-      
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-        utterance.lang = selectedVoice.lang || selectedLanguage;
-        console.log(`[Speech] ✓ Using voice: ${selectedVoice.name} (${utterance.lang})`);
-      } else {
-        utterance.lang = selectedLanguage;
-        console.warn(`[Speech] ⚠ No matching voice found for ${selectedLanguage}, relying on OS default.`);
-      }
-      
-      // Apply sensible settings
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
 
-      // Set event handlers
-      utterance.onstart = () => {
-        console.log("[Speech] ✓ onstart - Audio is now playing through speakers");
-        setIsSpeaking(true);
-      };
-
-      utterance.onend = () => {
-        console.log("[Speech] ✓ onend - Audio finished playing");
-        setIsSpeaking(false);
-      };
-
-      utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
-        console.error(`[Speech] ✗ Error event during playback:`, event);
-        setIsSpeaking(false);
-      };
-
-      // Slight delay after synth.cancel() ensures the new utterance is queued cleanly
-      setTimeout(() => {
-        console.log("[Speech] Triggering synth.speak()");
-        synth.speak(utterance);
-        
-        // Secondary fallback for Chrome bug: resume periodically
-        const resumeInterval = setInterval(() => {
-          if (!synth.speaking) {
-             clearInterval(resumeInterval);
-          } else {
-             synth.resume();
-          }
-        }, 5000);
-        
-        utterance.addEventListener('end', () => clearInterval(resumeInterval));
-        utterance.addEventListener('error', () => clearInterval(resumeInterval));
-      }, 50);
-
+      setMessages(prev => [...prev, aiMessage])
     } catch (error) {
-      console.error("[Speech] ✗ Exception in speak function:", error);
-      setIsSpeaking(false);
+      console.error('Failed to send message:', error)
+      const errorMessage: Message = {
+        id: 'error',
+        role: 'ASSISTANT',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
     }
-  };
+  }
 
   return (
-    <section className="py-20 bg-gray-50 flex items-center justify-center min-h-[500px]" id="live-agent">
-      <div className="max-w-2xl w-full mx-auto px-4 sm:px-6">
-        <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100"
+    <section className="bg-charcoal py-24 relative overflow-hidden">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <motion.div
+          ref={headerRef}
+          initial={{ opacity: 0, y: 20 }}
+          animate={headerInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6 }}
+          className="text-center mb-12"
         >
-          <div className="bg-green-600 p-6 text-white text-center flex flex-col items-center gap-3">
-             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
-                <Volume2 className="w-8 h-8" />
-             </div>
-             <h2 className="text-2xl font-bold">Kisaan AI Voice Agent</h2>
-             <p className="text-green-100 text-sm">Real-time agricultural assistant</p>
-          </div>
-
-          <div className="p-8 pb-10 flex flex-col items-center gap-6">
-            
-            {/* Language Selection */}
-            <div className="w-full flex gap-2 justify-center flex-wrap">
-              <button
-                onClick={() => setSelectedLanguage("en-IN")}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  selectedLanguage === "en-IN"
-                    ? "bg-green-600 text-white shadow-lg"
-                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-                }`}
-              >
-                English
-              </button>
-              <button
-                onClick={() => setSelectedLanguage("hi-IN")}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  selectedLanguage === "hi-IN"
-                    ? "bg-green-600 text-white shadow-lg"
-                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-                }`}
-              >
-                हिंदी (Hindi)
-              </button>
-              <button
-                onClick={() => setSelectedLanguage("kn-IN")}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  selectedLanguage === "kn-IN"
-                    ? "bg-green-600 text-white shadow-lg"
-                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-                }`}
-              >
-                ಕನ್ನಡ (Kannada)
-              </button>
-            </div>
-
-            {/* Response Display */}
-            <div className="h-40 w-full flex items-center justify-center p-4 bg-gray-50 rounded-xl overflow-hidden relative border text-center">
-               {isProcessing ? (
-                   <div className="flex flex-col items-center gap-2 text-green-600">
-                     <Loader2 className="w-8 h-8 animate-spin" />
-                     <span className="text-sm font-medium">Processing your request...</span>
-                   </div>
-               ) : isSpeaking ? (
-                   <div className="flex flex-col items-center gap-3">
-                     <div className="flex gap-1">
-                       {[...Array(4)].map((_, i) => (
-                         <div
-                           key={i}
-                           className="w-1 bg-green-600 rounded-full animate-pulse"
-                           style={{
-                             height: `${20 + i * 8}px`,
-                             animationDelay: `${i * 100}ms`
-                           }}
-                         />
-                       ))}
-                     </div>
-                     <span className="text-xs text-green-600 font-semibold">Speaking...</span>
-                   </div>
-               ) : (
-                   <p className="text-gray-700 text-lg font-medium italic">"{aiResponse}"</p>
-               )}
-            </div>
-
-            {/* Transcript Display */}
-            <div className="text-sm text-gray-500 mb-2 font-medium bg-gray-100 px-4 py-1 rounded-full text-center max-w-full">
-               {transcript ? `You said: "${transcript}"` : "Press microphone to speak"}
-            </div>
-
-            <div className="flex items-center gap-6">
-              {!isCalling ? (
-                <button 
-                  onClick={handleStartCall}
-                  className="bg-green-600 hover:bg-green-700 text-white rounded-full p-5 shadow-lg shadow-green-200 transition-all flex items-center gap-3 pr-8 w-48 justify-center"
-                >
-                  <Phone className="w-6 h-6" />
-                  <span className="font-semibold text-lg">Start Call</span>
-                </button>
-              ) : (
-                <>
-                   <button 
-                     onClick={handleEndCall}
-                     className="bg-red-500 hover:bg-red-600 text-white rounded-full p-4 shadow-lg shadow-red-200 transition-all flex items-center gap-2 pr-6"
-                   >
-                     <PhoneOff className="w-6 h-6" />
-                     <span className="font-semibold">End Call</span>
-                   </button>
-
-                   <button 
-                     onMouseDown={startListening}
-                     className={`${isListening ? 'bg-orange-500 shadow-orange-200 scale-110' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'} text-white rounded-full p-6 shadow-xl transition-all relative`}
-                   >
-                     {isListening ? (
-                         <>
-                         <div className="absolute inset-0 bg-orange-400 rounded-full animate-ping opacity-60"></div>
-                         <Mic className="w-8 h-8 relative z-10" />
-                         </>
-                     ) : (
-                         <MicOff className="w-8 h-8" />
-                     )}
-                   </button>
-                </>
-              )}
-            </div>
-
-            {/* Instructions */}
-            <p className="text-xs text-gray-400 mt-4 max-w-sm text-center">
-                {isCalling ? "🎤 Press & hold the microphone button to speak. Release to send. Select your preferred language above." : "🎯 Start a call to enable voice interaction."}
-            </p>
-
-          </div>
+          <h2 className="font-display text-4xl sm:text-5xl font-black text-cream mb-4">
+            Try Live AI Agent
+          </h2>
+          <p className="text-cream/70 text-lg sm:text-xl max-w-2xl mx-auto">
+            Experience real-time conversation with our Mistral AI-powered voice agent
+          </p>
         </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={headerInView ? { opacity: 1, scale: 1 } : {}}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="bg-forest/20 backdrop-blur-lg rounded-3xl border border-gold/20 p-8 max-w-3xl mx-auto"
+        >
+          <div className="flex justify-center gap-4 mb-8">
+            {!isCallActive ? (
+              <button
+                onClick={startCall}
+                disabled={isLoading}
+                className="flex items-center gap-3 bg-gold text-forest font-bold px-8 py-4 rounded-full hover:bg-gold/90 hover:scale-105 transition-all duration-200 disabled:opacity-50"
+              >
+                <Phone size={24} />
+                {isLoading ? 'Connecting...' : 'Start Call'}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsMuted(!isMuted)}
+                  className="flex items-center gap-2 bg-cream/10 text-cream border border-cream/30 font-semibold px-6 py-3 rounded-full hover:bg-cream/20 transition-all"
+                >
+                  {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                  {isMuted ? 'Unmute' : 'Mute'}
+                </button>
+                <button
+                  onClick={endCall}
+                  className="flex items-center gap-2 bg-red-500 text-white font-semibold px-6 py-3 rounded-full hover:bg-red-600 transition-all"
+                >
+                  <PhoneOff size={20} />
+                  End Call
+                </button>
+              </>
+            )}
+          </div>
+
+          {isCallActive && (
+            <div className="space-y-6">
+              <div className="bg-charcoal/50 rounded-2xl p-6 min-h-[400px] max-h-[500px] overflow-y-auto">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'} mb-4`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-5 py-3 ${
+                        msg.role === 'USER'
+                          ? 'bg-gold text-forest rounded-tr-sm'
+                          : 'bg-emerald-500/20 text-emerald-300 rounded-tl-sm'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1 opacity-70">
+                        {msg.role === 'ASSISTANT' && <Volume2 size={14} />}
+                        <span className="text-xs font-semibold">
+                          {msg.role === 'USER' ? 'You' : 'KisanVaani AI'}
+                        </span>
+                      </div>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    </div>
+                  </div>
+                ))}
+                {isLoading && (
+                  <div className="flex justify-start mb-4">
+                    <div className="bg-emerald-500/20 text-emerald-300 rounded-2xl rounded-tl-sm px-5 py-3">
+                      <div className="flex gap-2">
+                        <span className="animate-bounce">●</span>
+                        <span className="animate-bounce delay-100">●</span>
+                        <span className="animate-bounce delay-200">●</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                  placeholder="Type your message... (or speak)"
+                  disabled={isLoading}
+                  className="flex-1 bg-charcoal/50 text-cream border border-cream/20 rounded-full px-6 py-3 focus:outline-none focus:border-gold transition-colors placeholder-cream/40"
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={isLoading || !inputMessage.trim()}
+                  className="bg-gold text-forest font-bold px-8 py-3 rounded-full hover:bg-gold/90 transition-all disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </div>
+
+              <p className="text-cream/40 text-xs text-center">
+                Powered by Mistral AI • Real-time responses
+              </p>
+            </div>
+          )}
+
+          {!isCallActive && (
+            <div className="text-center py-12">
+              <p className="text-cream/60 mb-4">
+                Click &quot;Start Call&quot; to begin a conversation with our AI agent
+              </p>
+              <p className="text-cream/40 text-sm">
+                Backend server: {API_URL}
+              </p>
+            </div>
+          )}
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12 max-w-4xl mx-auto">
+          {[
+            { icon: '🤖', title: 'Real AI', desc: 'Powered by Mistral Large' },
+            { icon: '🎙️', title: 'Voice Ready', desc: 'STT/TTS simulation' },
+            { icon: '⚡', title: 'Instant', desc: 'Sub-2s response time' }
+          ].map((item, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, y: 20 }}
+              animate={headerInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.6, delay: 0.3 + idx * 0.1 }}
+              className="bg-cream/5 backdrop-blur-sm rounded-xl p-6 border border-cream/10 text-center"
+            >
+              <div className="text-4xl mb-3">{item.icon}</div>
+              <h3 className="text-cream font-bold mb-1">{item.title}</h3>
+              <p className="text-cream/60 text-sm">{item.desc}</p>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
-  );
+  )
 }

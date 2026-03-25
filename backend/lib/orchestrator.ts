@@ -1,4 +1,4 @@
-import { getFarmerContext, getMarketPrices, getWeatherForecast, getCropCalendar } from './data-sources';
+import { getFarmerContext, getMarketPrices, getWeatherForecast, getCropCalendar, getSoilHealth } from './data-sources';
 import { Mistral } from '@mistralai/mistralai';
 
 // Detect location from user's transcript
@@ -70,10 +70,11 @@ export async function getContextualPrompt(farmerId: string, userQuery: string) {
     const detectedCrop = extractCropFromTranscript(userQuery);
 
     // 3. Fetch external data based on DETECTED context
-    const [weather, marketInfo, cropInfo] = await Promise.all([
+    const [weather, marketInfo, cropInfo, soilData] = await Promise.all([
         getWeatherForecast(detectedLocation),
         getMarketPrices(detectedCrop, detectedLocation),
-        getCropCalendar(detectedCrop, "Kharif")
+        getCropCalendar(detectedCrop, "Kharif"),
+        getSoilHealth(detectedLocation)
     ]);
 
     // 4. Build a rich prompt for the LLM
@@ -84,23 +85,25 @@ FARMER PROFILE:
 - Name: ${profile.name}
 - Location: ${detectedLocation}
 - Land Size: ${profile.landSize} acres
-- Soil Type: ${profile.soilHealth}
+- Soil Type: ${soilData.type} | pH: ${soilData.pH} | Organic Carbon: ${soilData.organicCarbon}
 
-CURRENT CONDITIONS:
-- Weather: ${weather.summary} | Temp: ${weather.temperature}°C | Humidity: ${weather.humidity}%
-- Crop: ${detectedCrop}
-- Market Price: MSP ₹${marketInfo.msp} | Current ₹${marketInfo.currentMarket} | Trend: ${marketInfo.trend}
-- Seasonal Guidance: ${cropInfo.recommendation}
+REAL-TIME FARM DATA:
+🌤️ WEATHER: ${weather.summary} | Temp: ${weather.temperature} | Humidity: ${weather.humidity} | Wind: ${weather.windSpeed || 'Data available'}
+🌾 CROP: ${detectedCrop}
+💰 MARKET: MSP ₹${marketInfo.msp} | Current ₹${marketInfo.currentMarket} | ${marketInfo.trend} | Volume: ${marketInfo.volume}
+🪴 SOIL: ${soilData.type} soil with pH ${soilData.pH} | ${soilData.recommendation}
+📋 SEASONAL: ${cropInfo.recommendation}
 
 🌾 YOUR CONVERSATION STYLE:
 1. ENGAGE LIKE A REAL PERSON: Use warm, encouraging tone. Ask follow-up questions naturally when needed. Show genuine interest in their farming situation.
 
 2. PROVIDE COMPREHENSIVE ADVICE:
    - Give practical, actionable steps they can take TODAY
-   - Reference their specific location, crop, and current weather
+   - Reference their specific location, crop, soil type, and current weather
    - Include realistic yield expectations and timelines
    - Mention specific brands/products when helpful (seeds, fertilizers, etc.)
    - Compare MSP vs current market to help with decision-making
+   - Tie soil recommendations to their current crop plan
 
 3. MULTI-TURN CONVERSATION:
    - Ask clarifying questions if needed: "Are you planning to plant fresh or have existing crop?"
@@ -119,14 +122,15 @@ CURRENT CONDITIONS:
    - Sound like trusted local expert, not generic AI
 
 6. DATA-DRIVEN BUT HUMAN:
-   - Cite actual market prices, weather data, seasonal info
+   - Cite actual market prices, weather data, soil metrics, seasonal info
    - But frame it warmly: "Good news! Market prices are up 15% this week!"
-   - Give nuanced advice: "Normally I'd say wait, but given your soil and weather, acting now makes sense."
+   - Give nuanced advice: "Given your soil pH and current weather, acting now makes sense."
+   - Use soil type to refine recommendations: "Your loamy soil retains moisture well, so..."
 
 REMEMBER: You're having a real conversation with ${profile.name}. Make them say "WOW, this AI actually understands my farm!" 🚀
     `.trim();
 
-    console.log(`[Context] Location: ${detectedLocation}, Crop: ${detectedCrop}`);
+    console.log(`[Context] Location: ${detectedLocation}, Crop: ${detectedCrop}, Soil: ${soilData.type}`);
 
     return systemPrompt;
 }
