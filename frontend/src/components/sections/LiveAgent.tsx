@@ -220,36 +220,20 @@ export default function LiveAgent() {
     try {
       if (audioContextRef.current) audioContextRef.current.pause();
       
-      setIsLoading(true)
       const conversationId = Date.now().toString()
       setConversationId(conversationId)
       setIsCallActive(true)
-
-      const startMessagePlaceholder = language === 'hi-IN' 
-        ? "नमस्ते। किसान वाणी में आपका स्वागत है। मैं आपकी कैसी मदद कर सकता हूँ?" 
-        : language === 'kn-IN'
-          ? "ನಮಸ್ಕಾರ. ಕಿಸಾನ್ ವಾಣಿಗೆ ಸ್ವಾಗತ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?"
-          : "Hello. Welcome to KisanVaani. How can I help you today?";
-
-      // Just set the welcome message locally - DON'T send to API yet
-      setMessages([{
-        id: '1',
-        role: 'ASSISTANT',
-        content: startMessagePlaceholder,
-        timestamp: new Date()
-      }])
+      setMessages([]) // Start with empty messages - no greeting message shown
       
-      // Start voice recognition so user can speak
+      // Start voice recognition so user can speak immediately
       if (!isMutedRef.current && recognitionRef.current) {
         setTimeout(() => {
           toggleListening();
-        }, 500);
+        }, 300);
       }
       
     } catch (error) {
       alert('Failed to start conversation. Please try again.')
-    } finally {
-      setIsLoading(false)
     }
   }
 
