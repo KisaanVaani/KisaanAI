@@ -609,8 +609,8 @@ export default function LiveAgent() {
                  </div>
               </div>
 
-              {/* Live Transcripts (Small Chat Box) */}
-              <div className="flex-1 px-6 overflow-y-auto w-full custom-scrollbar flex flex-col opacity-80 mt-4 mb-4">
+              {/* Live Transcripts (Small Chat Box) — pb-28 leaves room for pinned controls */}
+              <div className="flex-1 px-6 overflow-y-auto w-full custom-scrollbar flex flex-col opacity-80 mt-4 pb-28">
                  {[...messages].reverse().slice(0, 3).reverse().map((msg, idx) => (
                     <div key={msg.id} className={`mb-3 w-full flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'}`}>
                        <div className={`max-w-[85%] rounded-2xl px-4 py-2 ${
@@ -633,8 +633,8 @@ export default function LiveAgent() {
                  <div ref={messagesEndRef} />
               </div>
 
-              {/* Phone Controls */}
-              <div className="pb-12 pt-4 px-8 mt-auto flex justify-center gap-8 w-full bg-charcoal/80 rounded-t-3xl border-t border-cream/5 backdrop-blur-md">
+              {/* Phone Controls — ALWAYS PINNED TO BOTTOM with z-50, never hidden */}
+              <div className="absolute bottom-0 left-0 right-0 pb-8 pt-4 px-8 flex justify-center gap-8 w-full bg-charcoal/95 rounded-t-3xl border-t border-cream/10 backdrop-blur-md z-50 shadow-[0_-8px_30px_rgba(0,0,0,0.4)]">
                  <button 
                     onClick={() => {
                        setIsMuted(!isMuted);
@@ -643,25 +643,29 @@ export default function LiveAgent() {
                            try { recognitionRef.current.start(); } catch(e){}
                        }
                     }}
-                    className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
                        isMuted ? 'bg-cream/20 text-white' : 'bg-cream/5 text-white/70 hover:bg-cream/10'
                     }`}
+                    title={isMuted ? 'Unmute' : 'Mute'}
                  >
-                    {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                    {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                  </button>
                  
                  <button 
                     onClick={() => {}}
-                    className="w-16 h-16 rounded-full bg-cream/5 text-white/70 flex items-center justify-center hover:bg-cream/10 transition-colors"
+                     className="w-14 h-14 rounded-full bg-cream/5 text-white/70 flex items-center justify-center hover:bg-cream/10 transition-colors"
+                     title="Speaker"
                  >
-                    <Volume2 size={24} />
+                    <Volume2 size={22} />
                  </button>
 
+                  {/* RED END CALL — always clickable, always on top */}
                  <button 
                     onClick={endCall}
-                    className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 shadow-lg shadow-red-500/20"
+                    className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-95 shadow-lg shadow-red-500/30 transition-all hover:scale-105"
+                    title="End Call"
                  >
-                    <PhoneOff size={24} />
+                    <PhoneOff size={22} />
                  </button>
               </div>
 

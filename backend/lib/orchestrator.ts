@@ -61,7 +61,7 @@ function extractCropFromTranscript(transcript: string): string {
 }
 
 // Example of orchestrating data to feed into the prompt
-export async function getContextualPrompt(farmerId: string, userQuery: string) {
+export async function getContextualPrompt(farmerId: string, userQuery: string, language: string = 'en-IN') {
     // 1. Fetch Farmer Context
     const profile = await getFarmerContext(farmerId);
 

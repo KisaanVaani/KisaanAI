@@ -35,9 +35,10 @@ export async function POST(req: Request) {
 
     // Call Mistral AI to get the agent's response
     const chatResponse = await client.chat.complete({
-      model: 'mistral-small-latest',
+      model: 'mistral-large-latest',
       messages: finalMessages as any,
-      maxTokens: 100,
+      maxTokens: 1024,
+      temperature: 0.7,
     });
 
     let rawReply = chatResponse.choices[0].message.content as string;
