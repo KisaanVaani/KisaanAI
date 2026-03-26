@@ -1,16 +1,20 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, useInView } from 'framer-motion'
-import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2, Send, Delete } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2, Delete } from 'lucide-react'
 
-// Types
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface Message {
   id: string
   role: 'USER' | 'ASSISTANT'
   content: string
   timestamp: Date
 }
+
+// THE FIX: One explicit state machine. No boolean soup.
+// ONLY this ref controls whether recognition should run.
+type CallPhase = 'idle' | 'listening' | 'processing' | 'speaking'
 
 declare global {
   interface Window {
@@ -20,470 +24,362 @@ declare global {
 }
 
 export default function LiveAgent() {
-  const [isCallActive, setIsCallActive] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  
-  // Numpad variables
-  const [dialNumber, setDialNumber] = useState('')
-  const [callDuration, setCallDuration] = useState(0)
-  
-  const conversationIdRef = useRef<string | null>(null)
-  const isCallActiveRef = useRef(false)
-  const isMutedRef = useRef(false)
-  const isLoadingRef = useRef(false)
-  const isSpeakingRef = useRef(false) // PREVENTS LISTENING TO OWN VOICE
-
-  // Voice & Chat interaction
-  const [isListening, setIsListening] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false) // ACTUAL STATE FOR UI
-  const [language, setLanguage] = useState('hi-IN')
+  // ─── UI State (drives rendering only) ─────────────────────────────────────
+  const [isCallActive, setIsCallActive]     = useState(false)
+  const [isMuted, setIsMuted]               = useState(false)
+  const [messages, setMessages]             = useState<Message[]>([])
+  const [dialNumber, setDialNumber]         = useState('')
+  const [callDuration, setCallDuration]     = useState(0)
+  const [language, setLanguage]             = useState('hi-IN')
   const [partialTranscript, setPartialTranscript] = useState('')
-  const [currentTime, setCurrentTime] = useState('')
-  
-  // Smart listening window
-  const finalTranscriptBufferRef = useRef('')
-  const submitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [currentTime, setCurrentTime]       = useState('')
+  const [phase, setPhase]                   = useState<CallPhase>('idle') // drives UI badges
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const recognitionRef = useRef<any>(null)
-  const audioContextRef = useRef<HTMLAudioElement | null>(null)
-  const callTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // ─── Refs (synchronous — truth source for callbacks) ──────────────────────
+  const phaseRef          = useRef<CallPhase>('idle') // THE ONE TRUE STATE
+  const conversationIdRef = useRef<string | null>(null)
+  const messagesRef       = useRef<Message[]>([])     // keeps messages in sync for callbacks
+  const isMutedRef        = useRef(false)
+  const languageRef       = useRef('hi-IN')
+  const recognitionRef    = useRef<any>(null)
+  const audioRef          = useRef<HTMLAudioElement | null>(null)
+  const callTimerRef      = useRef<NodeJS.Timeout | null>(null)
+  const submitTimeoutRef  = useRef<NodeJS.Timeout | null>(null)
+  const transcriptBufRef  = useRef('')
+  const messagesEndRef    = useRef<HTMLDivElement>(null)
 
-  // Initialize audio element on mount - MUST be in DOM to produce sound
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !audioContextRef.current) {
-      const audio = document.createElement('audio');
-      audio.style.display = 'none';
-      document.body.appendChild(audio);
-      audioContextRef.current = audio;
-      console.log('✅ Audio element created and added to DOM');
-    }
-    return () => {
-      if (audioContextRef.current && audioContextRef.current.parentNode) {
-        try {
-          audioContextRef.current.parentNode.removeChild(audioContextRef.current);
-        } catch(e) {}
-      }
-    };
-  }, []);
+  // Keep refs in sync with state
+  useEffect(() => { messagesRef.current = messages }, [messages])
+  useEffect(() => { isMutedRef.current = isMuted }, [isMuted])
+  useEffect(() => { languageRef.current = language }, [language])
 
-  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId])
-  useEffect(() => { isCallActiveRef.current = isCallActive; }, [isCallActive])
-  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted])
-  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading])
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  // Comment out auto-scroll - don't auto-scroll on new messages
-  // useEffect(() => {
-  //   scrollToBottom()
-  // }, [messages, partialTranscript])
-
-  // Update clock time on client only (fixes hydration mismatch)
-  useEffect(() => {
-    const updateTime = () => {
-      setCurrentTime(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}))
-    }
-    updateTime()
-    const interval = setInterval(updateTime, 60000) // Update every minute
-    return () => clearInterval(interval)
+  // ─── Phase setter — always sets BOTH ref (sync) and state (async UI) ──────
+  const setCallPhase = useCallback((p: CallPhase) => {
+    console.log(`[Phase] ${phaseRef.current} → ${p}`)
+    phaseRef.current = p
+    setPhase(p)
   }, [])
 
-  // Call Duration Timer
+  // ─── Start mic ────────────────────────────────────────────────────────────
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current) return
+    if (phaseRef.current !== 'listening') return // guard: only start if we INTEND to listen
+    try {
+      recognitionRef.current.lang = languageRef.current
+      recognitionRef.current.start()
+    } catch (e) {
+      // already running — fine
+    }
+  }, [])
+
+  // ─── Stop mic ──────────────────────────────────────────────────────────────
+  const stopListening = useCallback(() => {
+    if (!recognitionRef.current) return
+    try { recognitionRef.current.abort() } catch (e) {}
+  }, [])
+
+  // ─── Clock ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const tick = () => setCurrentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+    tick()
+    const t = setInterval(tick, 60000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ─── Call timer ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isCallActive) {
-      callTimerRef.current = setInterval(() => {
-        setCallDuration(prev => prev + 1)
-      }, 1000)
+      callTimerRef.current = setInterval(() => setCallDuration(p => p + 1), 1000)
     } else {
       setCallDuration(0)
       if (callTimerRef.current) clearInterval(callTimerRef.current)
     }
-    return () => {
-      if (callTimerRef.current) clearInterval(callTimerRef.current)
-    }
+    return () => { if (callTimerRef.current) clearInterval(callTimerRef.current) }
   }, [isCallActive])
 
-  // Initialize Speech Recognition
+  // ─── Audio element (DOM-attached for autoplay policy) ──────────────────────
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = true; // Use continuous to avoid stopping too early
-        recognitionRef.current.interimResults = true;
-        recognitionRef.current.lang = language;
+    if (typeof window === 'undefined') return
+    const el = document.createElement('audio')
+    el.style.display = 'none'
+    document.body.appendChild(el)
+    audioRef.current = el
+    return () => { try { document.body.removeChild(el) } catch (e) {} }
+  }, [])
 
-        recognitionRef.current.onstart = () => {
-          setIsListening(true);
-        };
+  // ─── Speech Recognition setup ──────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return
 
-        recognitionRef.current.onresult = (event: any) => {
-          if (isSpeakingRef.current) return; // IGNORE OWN VOICE
+    const rec = new SR()
+    rec.continuous     = true   // CONTINUOUS: keeps listening through natural pauses
+    rec.interimResults = true
+    rec.lang           = language
+    recognitionRef.current = rec
 
-          let currentTranscript = '';
-          let isFinal = false;
-          
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-             currentTranscript += event.results[i][0].transcript;
-             if (event.results[i].isFinal) isFinal = true;
+    rec.onstart = () => {
+      console.log('[Mic] started')
+    }
+
+    rec.onresult = (event: any) => {
+      // Hard guard: if we're not supposed to be listening, discard entirely
+      if (phaseRef.current !== 'listening') {
+        console.log('[Mic] onresult ignored — phase is', phaseRef.current)
+        return
+      }
+      if (isMutedRef.current) return
+
+      let interimText = ''
+      let finalChunk = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalChunk += t
+        } else {
+          interimText += t
+        }
+      }
+
+      // Always show live transcript (interim + accumulated finals)
+      setPartialTranscript((transcriptBufRef.current + ' ' + finalChunk + ' ' + interimText).trim())
+
+      if (finalChunk.trim()) {
+        transcriptBufRef.current = (transcriptBufRef.current + ' ' + finalChunk.trim()).trim()
+
+        // Reset silence timer — wait 1.8s after the LAST final word before submitting
+        // This lets the user pause and continue naturally
+        if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current)
+        submitTimeoutRef.current = setTimeout(() => {
+          const toSubmit = transcriptBufRef.current.trim()
+          transcriptBufRef.current = ''
+          setPartialTranscript('')
+          if (toSubmit.length > 2) {
+            // Lock phase IMMEDIATELY before any async
+            phaseRef.current = 'processing'
+            setPhase('processing')
+            stopListening()
+            handleUserSubmit(toSubmit)
           }
-          
-          if (isFinal) {
-             setPartialTranscript('');
-             finalTranscriptBufferRef.current += ' ' + currentTranscript.trim();
-             
-             // Smart context delay - wait 2.5s to see if they continue speaking
-             if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current);
-             
-             submitTimeoutRef.current = setTimeout(() => {
-                 const finalToSubmit = finalTranscriptBufferRef.current.trim();
-                 if (finalToSubmit.length > 0) {
-                     handleUserSubmit(finalToSubmit, conversationIdRef.current);
-                 }
-                 finalTranscriptBufferRef.current = ''; // Reset buffer
-             }, 2500); // 2.5 second natural pause window
-             
-          } else {
-             setPartialTranscript(finalTranscriptBufferRef.current + ' ' + currentTranscript);
-             
-             // Reset the timeout if they explicitly keep talking BEFORE the timeout hits
-             if (submitTimeoutRef.current) {
-                 clearTimeout(submitTimeoutRef.current);
-             }
-          }
-        };
-
-        recognitionRef.current.onerror = (event: any) => {
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-              setIsListening(false);
-          }
-        };
-
-        recognitionRef.current.onend = () => {
-          if (isCallActiveRef.current && !isMutedRef.current && !isLoadingRef.current && !isSpeakingRef.current) {
-            try { 
-                recognitionRef.current.start(); 
-                setIsListening(true);
-            } catch(e) {
-                setIsListening(false);
-            }
-          } else {
-            setIsListening(false);
-          }
-        };
+          // if too short (noise), stay listening
+        }, 1800) // 1.8s silence = natural end of utterance
+      } else {
+        // Interim — reset the silence timer while user is mid-sentence
+        if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current)
       }
     }
-    
+
+    rec.onerror = (event: any) => {
+      const err = event.error
+      console.log('[Mic] error:', err)
+      if (err === 'aborted' || err === 'no-speech') {
+        // Expected — will be handled by onend
+        return
+      }
+      // Real error — stay in processing/speaking, don't self-restart
+    }
+
+    rec.onend = () => {
+      console.log('[Mic] ended — phase is', phaseRef.current)
+      // With continuous=true, onend usually means a network/timeout disconnect
+      // ONLY restart if we're still supposed to be listening
+      if (phaseRef.current === 'listening' && !isMutedRef.current) {
+        try { rec.start() } catch (e) { console.log('[Mic] restart failed:', e) }
+      }
+      // Any other phase: do nothing.
+    }
+
     return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch(e) {}
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.pause();
-      }
-      if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current);
+      try { rec.abort() } catch (e) {}
     }
-  }, [language]); 
+  }, [language]) // eslint-disable-line
 
-  const handleDial = (num: string) => {
-    if (dialNumber.length < 10) setDialNumber(prev => prev + num)
-  }
-  
-  const handleBackspace = () => {
-    setDialNumber(prev => prev.slice(0, -1))
-  }
-
-  const toggleListening = useCallback(() => {
-    if (isMutedRef.current || isSpeakingRef.current) return;
-    
-    if (isListening) {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e) {}
-      }
-      setIsListening(false);
-    } else {
-      if (recognitionRef.current) {
-         try {
-            recognitionRef.current.lang = language;
-            recognitionRef.current.start();
-         } catch(e) {
-            console.error("Microphone start error:", e);
-         }
-      }
+  // ─── Play audio & transition phases ────────────────────────────────────────
+  const playAudio = useCallback((base64Audio: string, shouldEndCallAfter: boolean) => {
+    const audio = audioRef.current
+    if (!audio || !base64Audio) {
+      // No audio — go straight to listening
+      setCallPhase('listening')
+      startListening()
+      return
     }
-  }, [isListening, language]);
 
-  const startCall = async () => {
-    if (dialNumber !== '896') {
-      alert('Please dial 896 to connect to KisaanVaani.');
-      return;
-    }
+    setCallPhase('speaking')
+    stopListening() // ensure mic is off while we speak
 
     try {
-      setIsLoading(true)
-      const conversationId = Date.now().toString()
-      setConversationId(conversationId)
-      setIsCallActive(true)
+      const bin = atob(base64Audio)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const blob = new Blob([bytes.buffer], { type: 'audio/wav' })
+      audio.src = URL.createObjectURL(blob)
+      audio.volume = 1.0
+      audio.muted = false
 
-      const startMessagePlaceholder = language === 'hi-IN' 
-        ? "नमस्ते। किसान वाणी में आपका स्वागत है। मैं आपकी कैसी मदद कर सकता हूँ?" 
-        : language === 'kn-IN'
-          ? "ನಮಸ್ಕಾರ. ಕಿಸಾನ್ ವಾಣಿಗೆ ಸ್ವಾಗತ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?"
-          : "Hello. Welcome to KisanVaani. How can I help you today?";
+      const onAudioDone = () => {
+        console.log('[Audio] done')
+        if (shouldEndCallAfter) {
+          triggerEndCall()
+          return
+        }
+        // Transition: speaking → listening
+        setCallPhase('listening')
+        startListening()
+      }
 
-      setMessages([{
-        id: '1',
-        role: 'ASSISTANT',
-        content: startMessagePlaceholder,
+      audio.onended = onAudioDone
+      audio.onerror = () => {
+        console.error('[Audio] error')
+        setCallPhase('listening')
+        startListening()
+      }
+
+      audio.play().catch(err => {
+        console.error('[Audio] play() failed:', err.message)
+        setCallPhase('listening')
+        startListening()
+      })
+    } catch (err) {
+      console.error('[Audio] exception:', err)
+      setCallPhase('listening')
+      startListening()
+    }
+  }, [startListening, stopListening]) // eslint-disable-line
+
+  // ─── End call ──────────────────────────────────────────────────────────────
+  const triggerEndCall = useCallback(() => {
+    setCallPhase('idle')
+    stopListening()
+    if (audioRef.current) audioRef.current.pause()
+    if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current)
+    transcriptBufRef.current = ''
+    conversationIdRef.current = null
+    setIsCallActive(false)
+    setIsMuted(false)
+    setMessages([])
+    setPartialTranscript('')
+    setDialNumber('')
+  }, [setCallPhase, stopListening])
+
+  // ─── API call ──────────────────────────────────────────────────────────────
+  const handleUserSubmit = useCallback(async (transcript: string) => {
+    const userId = conversationIdRef.current
+    if (!transcript.trim() || !userId) { setCallPhase('listening'); startListening(); return }
+
+    // Phase is already 'processing' — confirmed by caller
+    console.log('[Submit] →', transcript.substring(0, 60))
+
+    const userMsg: Message = { id: Date.now().toString(), role: 'USER', content: transcript, timestamp: new Date() }
+    setMessages(prev => [...prev, userMsg])
+    setPartialTranscript('')
+
+    const historyForApi = [...messagesRef.current, userMsg].map(m => ({
+      role: m.role === 'USER' ? 'user' : 'assistant',
+      content: m.content
+    }))
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript,
+          language: languageRef.current,
+          userId,
+          farmerId: 'farmer-001',
+          history: historyForApi
+        })
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+
+      const aiMsg: Message = { id: (Date.now() + 1).toString(), role: 'ASSISTANT', content: data.reply, timestamp: new Date() }
+      setMessages(prev => [...prev, aiMsg])
+
+      // Transition: processing → speaking (or listening if no audio)
+      playAudio(data.audio, !!data.endCall)
+
+    } catch (err: any) {
+      console.error('[Submit] error:', err.message)
+      setMessages(prev => [...prev, {
+        id: 'err', role: 'ASSISTANT',
+        content: 'कुछ गड़बड़ हो गई। फिर बोलें।',
         timestamp: new Date()
       }])
-      
-      const welcomePrompt = language === 'kn-IN' ? "ನಮಸ್ಕಾರ" : language === 'hi-IN' ? "नमस्ते" : "Hello, how can you help me today?";
+      // On error, go back to listening
+      setCallPhase('listening')
+      startListening()
+    }
+  }, [playAudio, setCallPhase, startListening])
 
-      const response = await fetch('/api/chat', {
+  // ─── Start call ────────────────────────────────────────────────────────────
+  const startCall = async () => {
+    if (dialNumber !== '896') { alert('Please dial 896 to connect to KisaanVaani.'); return }
+
+    // Unlock audio context on first user gesture
+    if (audioRef.current) {
+      audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
+      audioRef.current.volume = 0.001
+      audioRef.current.play().catch(() => {})
+    }
+
+    const convId = Date.now().toString()
+    conversationIdRef.current = convId
+    setIsCallActive(true)
+    setCallPhase('processing') // block mic while greeting loads
+
+    const placeholder = language === 'hi-IN'
+      ? 'नमस्ते। किसान वाणी में आपका स्वागत है...'
+      : language === 'kn-IN'
+        ? 'ನಮಸ್ಕಾರ. ಕಿಸಾನ್ ವಾಣಿಗೆ ಸ್ವಾಗತ...'
+        : 'Hello. Welcome to KisaanVaani...'
+
+    setMessages([{ id: '0', role: 'ASSISTANT', content: placeholder, timestamp: new Date() }])
+
+    try {
+      const welcomePrompt = language === 'kn-IN' ? 'ನಮಸ್ಕಾರ' : language === 'hi-IN' ? 'नमस्ते' : 'Hello'
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: welcomePrompt,
-          language: language,
-          userId: conversationId,
-          farmerId: 'farmer-001'
-        })
+        body: JSON.stringify({ transcript: welcomePrompt, language, userId: convId, farmerId: 'farmer-001', history: [] })
       })
-      const data = await response.json()
-      
-      if (data.reply) {
-        setMessages([{
-          id: '1',
-          role: 'ASSISTANT',
-          content: data.reply,
-          timestamp: new Date()
-        }])
-      }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `HTTP ${res.status}`) }
+      const data = await res.json()
 
-      if (data.audio) {
-         playAudio(data.audio, data.endCall);
-      } else {
-         setTimeout(() => {
-             if (data.endCall) {
-                 endCall();
-             } else if (!isMutedRef.current && recognitionRef.current) {
-                 toggleListening();
-             }
-         }, 2000);
-      }
-      
-    } catch (error) {
-      alert('Failed to start conversation. Please try again.')
-    } finally {
-      setIsLoading(false)
+      if (data.reply) setMessages([{ id: '1', role: 'ASSISTANT', content: data.reply, timestamp: new Date() }])
+      playAudio(data.audio, !!data.endCall)
+
+    } catch (err: any) {
+      console.error('[startCall]', err.message)
+      triggerEndCall()
+      alert(`Failed to connect: ${err.message}`)
     }
   }
 
-  const endCall = useCallback(async () => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
+  // ─── Mute toggle ───────────────────────────────────────────────────────────
+  const toggleMute = () => {
+    const next = !isMuted
+    setIsMuted(next)
+    isMutedRef.current = next
+    if (next) {
+      stopListening()
+    } else if (phaseRef.current === 'listening') {
+      startListening()
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.pause();
-    }
-    if (submitTimeoutRef.current) clearTimeout(submitTimeoutRef.current);
-    
-    setIsCallActive(false)
-    setIsListening(false)
-    setConversationId(null)
-    setPartialTranscript('')
-    setIsLoading(false)
-    finalTranscriptBufferRef.current = ''
-    setDialNumber('') // Reset dialer as well
-  }, [])
-  
-  const playAudio = useCallback((base64Audio: string, shouldEndCall: boolean = false) => {
-    if (!base64Audio) {
-      console.error('❌ No audio data');
-      isSpeakingRef.current = false;
-      setIsSpeaking(false);
-      return;
-    }
-    
-    console.log('🔊 playAudio called, size:', Math.round(base64Audio.length / 1024), 'KB');
-    isSpeakingRef.current = true;
-    setIsSpeaking(true);
-    
-    if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e) {}
-    }
+  }
 
-    try {
-      // Decode base64 properly
-      const binaryStr = atob(base64Audio);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      
-      // Create blob and URL
-      const blob = new Blob([bytes.buffer], { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(blob);
-      console.log('🔊 Blob URL created:', audioUrl.substring(0, 50));
-      
-      // Get or create audio element
-      let audio = audioContextRef.current;
-      if (!audio) {
-        console.log('🔊 Creating new audio element');
-        audio = new Audio();
-      }
-      
-      // Reset and configure
-      audio.pause();
-      audio.currentTime = 0;
-      audio.volume = 1.0;
-      audio.muted = false;
-      
-      console.log(`🔊 Audio config: volume=${audio.volume}, muted=${audio.muted}`);
-      
-      // Set up event handlers
-      const onEnded = () => {
-        console.log('🔊 Audio ended');
-        isSpeakingRef.current = false;
-        setIsSpeaking(false);
-        if (shouldEndCall) {
-           endCall();
-        } else if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
-           try {
-             recognitionRef.current.start();
-             console.log('🔊 Listening resumed');
-           } catch(e) {console.error('Resume listen error:', e);}
-        }
-      };
-      
-      const onError = (e: any) => {
-        console.error('❌ Audio error:', e?.message || e);
-        isSpeakingRef.current = false;
-        setIsSpeaking(false);
-        if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
-           try { recognitionRef.current.start(); } catch(e) {}
-        }
-      };
-      
-      audio.onended = onEnded;
-      audio.onerror = onError;
-      
-      // Set source and play - CRITICAL: use attribute to ensure it persists
-      audio.src = audioUrl;
-      
-      console.log('🔊 Calling play()...');
-      const playPromise = audio.play();
-      
-      if (playPromise) {
-        playPromise
-          .then(() => {
-            console.log('✅✅✅ AUDIO PLAYING NOW ✅✅✅');
-          })
-          .catch((error: any) => {
-            console.error('❌ Play failed:', error.name, '-', error.message);
-            isSpeakingRef.current = false;
-            setIsSpeaking(false);
-          });
-      }
-    } catch (error) {
-      console.error('❌ Error in playAudio:', error);
-      isSpeakingRef.current = false;
-      setIsSpeaking(false);
-    }
-  }, [endCall]);
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+  const formatDuration = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 
-  const handleUserSubmit = useCallback(async (transcript: string, activeId?: string | null) => {
-    const idToUse = activeId || conversationIdRef.current;
-    if (!transcript.trim() || !idToUse) return
+  // ─── Derived UI flags ──────────────────────────────────────────────────────
+  const isListening  = phase === 'listening'
+  const isLoading    = phase === 'processing'
+  const isSpeaking   = phase === 'speaking'
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'USER',
-      content: transcript,
-      timestamp: new Date()
-    }
-
-    setMessages(prev => [...prev, userMessage])
-    setIsLoading(true)
-    setIsListening(false) 
-    
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
-    }
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: transcript,
-          language: language,
-          userId: idToUse,
-          farmerId: 'farmer-001',
-          history: [...messages, userMessage].map((m) => ({
-            role: m.role.toLowerCase(),
-            content: m.content
-          }))
-        })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        console.error('❌ API Error:', data.error);
-        throw new Error(data.error || 'API request failed');
-      }
-
-      console.log('✅ API Response:', { hasAudio: !!data.audio, audioLength: data.audio?.length, endCall: data.endCall });
-
-      const aiMessage: Message = {
-        id: Date.now().toString(),
-        role: 'ASSISTANT',
-        content: data.reply,
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, aiMessage])
-      
-      if (data.audio) {
-          console.log('🔊 Audio received, calling playAudio');
-          playAudio(data.audio, data.endCall);
-      } else {
-          console.log('⚠️ No audio in response, waiting before resuming listen');
-          setTimeout(() => {
-              if (data.endCall) {
-                  endCall();
-              } else if (isCallActiveRef.current && !isMutedRef.current) {
-                  toggleListening();
-              }
-          }, 1000);
-      }
-      
-    } catch (error) {
-      const errorMessage: Message = {
-        id: 'error',
-        role: 'ASSISTANT',
-        content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [language, playAudio, endCall, toggleListening])
-
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <section className="py-24 bg-forest relative overflow-hidden" id="demo">
       <div className="container mx-auto px-4 relative z-10">
@@ -493,180 +389,148 @@ export default function LiveAgent() {
         </div>
 
         <motion.div className="max-w-[320px] mx-auto bg-charcoal rounded-[2.5rem] border-8 border-gray-900 shadow-2xl overflow-hidden h-[600px] relative flex flex-col">
-          
-          {/* Top Status Bar (Phone Look) */}
+
+          {/* Status bar */}
           <div className="bg-charcoal px-6 py-2 flex justify-between items-center text-cream/70 text-xs font-semibold z-20">
             <span suppressHydrationWarning>{currentTime}</span>
-            <div className="flex gap-2">
-              <SignalIcon />
-              <BatteryIcon />
-            </div>
+            <div className="flex gap-2"><SignalIcon /><BatteryIcon /></div>
           </div>
 
           {!isCallActive ? (
-            /* =========================================================
-                                DIALER SCREEN
-               ========================================================= */
+            /* ─── DIALER ─────────────────────────────────────────────────────── */
             <div className="flex-1 flex flex-col items-center justify-between p-6 bg-charcoal">
               <div className="w-full text-center mt-6 mb-4">
-                 <h2 className="text-3xl text-cream font-mono tracking-wider h-10 flex items-center justify-center">
-                    {dialNumber || ''}
-                 </h2>
-                 <p className="text-gold mt-2">Dial 896 to reach KisaanVaani</p>
-                 
-                 <div className="flex justify-center gap-4 mt-6">
-                    <button 
-                      onClick={() => setLanguage('hi-IN')}
-                      className={`px-4 py-1 rounded-full text-sm border ${language === 'hi-IN' ? 'border-gold text-gold bg-gold/10' : 'border-cream/20 text-cream/60'}`}
-                    >हिन्दी</button>
-                    <button 
-                      onClick={() => setLanguage('kn-IN')}
-                      className={`px-4 py-1 rounded-full text-sm border ${language === 'kn-IN' ? 'border-gold text-gold bg-gold/10' : 'border-cream/20 text-cream/60'}`}
-                    >ಕನ್ನಡ</button>
-                    <button 
-                      onClick={() => setLanguage('en-IN')}
-                      className={`px-4 py-1 rounded-full text-sm border ${language === 'en-IN' ? 'border-gold text-gold bg-gold/10' : 'border-cream/20 text-cream/60'}`}
-                    >English</button>
-                 </div>
+                <h2 className="text-3xl text-cream font-mono tracking-wider h-10 flex items-center justify-center">
+                  {dialNumber || ''}
+                </h2>
+                <p className="text-gold mt-2">Dial 896 to reach KisaanVaani</p>
+                <div className="flex justify-center gap-4 mt-6">
+                  {(['hi-IN', 'kn-IN', 'en-IN'] as const).map(lang => (
+                    <button key={lang} onClick={() => setLanguage(lang)}
+                      className={`px-4 py-1 rounded-full text-sm border ${language === lang ? 'border-gold text-gold bg-gold/10' : 'border-cream/20 text-cream/60'}`}>
+                      {lang === 'hi-IN' ? 'हिन्दी' : lang === 'kn-IN' ? 'ಕನ್ನಡ' : 'English'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 w-full max-w-[240px] mt-2 mb-2">
-                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, '*', 0, '#'].map((num) => (
-                    <button 
-                      key={num} 
-                      onClick={() => handleDial(num.toString())}
-                      className="bg-cream/5 hover:bg-cream/10 text-xl font-light text-cream rounded-full aspect-square flex items-center justify-center transition-colors h-14 w-14 mx-auto"
-                    >
-                      {num}
-                    </button>
-                 ))}
+                {[1,2,3,4,5,6,7,8,9,'*',0,'#'].map(num => (
+                  <button key={num} onClick={() => dialNumber.length < 10 && setDialNumber(p => p + num.toString())}
+                    className="bg-cream/5 hover:bg-cream/10 text-xl font-light text-cream rounded-full aspect-square flex items-center justify-center transition-colors h-14 w-14 mx-auto">
+                    {num}
+                  </button>
+                ))}
               </div>
-              
+
               <div className="flex justify-between items-center w-full max-w-[240px] mt-2 mb-4 px-4">
-                 <div className="w-16"></div> {/* Spacer */}
-                 <button 
-                    onClick={startCall}
-                    className="bg-green-500 hover:bg-green-400 text-white rounded-full aspect-square w-16 flex items-center justify-center transition-transform hover:scale-105 shadow-lg shadow-green-500/20"
-                 >
-                    <Phone size={24} />
-                 </button>
-                 <button 
-                    onClick={handleBackspace}
-                    disabled={!dialNumber}
-                    className="w-16 flex items-center justify-center text-cream/50 hover:text-cream disabled:opacity-0"
-                 >
-                    <Delete size={24} />
-                 </button>
+                <div className="w-16" />
+                <button onClick={startCall}
+                  className="bg-green-500 hover:bg-green-400 text-white rounded-full aspect-square w-16 flex items-center justify-center transition-transform hover:scale-105 shadow-lg shadow-green-500/20">
+                  <Phone size={24} />
+                </button>
+                <button onClick={() => setDialNumber(p => p.slice(0, -1))} disabled={!dialNumber}
+                  className="w-16 flex items-center justify-center text-cream/50 hover:text-cream disabled:opacity-0">
+                  <Delete size={24} />
+                </button>
               </div>
             </div>
+
           ) : (
-            /* =========================================================
-                                IN-CALL SCREEN
-               ========================================================= */
+            /* ─── IN-CALL ────────────────────────────────────────────────────── */
             <div className="flex-1 flex flex-col bg-gradient-to-b from-charcoal to-forest/30">
-              
-              {/* Call Header */}
+
+              {/* Avatar & status */}
               <div className="pt-12 pb-6 px-6 flex flex-col items-center">
-                 <div className={`relative w-24 h-24 rounded-full flex items-center justify-center mb-4 border transition-all duration-300 ${
-                     isSpeaking ? 'border-green-400 shadow-[0_0_20px_rgba(74,222,128,0.5)] scale-105' : 'border-gold/30 shadow-gold/10 bg-gold/20'
-                 }`}>
-                    {isSpeaking && (
-                        <>
-                            <div className="absolute inset-0 rounded-full border-2 border-green-500 animate-ping opacity-75"></div>
-                            {/* Sound waves visualization representing "mouth moving" */}
-                            <div className="absolute -bottom-2 flex gap-1 items-end h-5 z-10 bg-charcoal/80 px-2 py-1 rounded-full border border-green-500/30">
-                                <div className="w-1 bg-green-400 rounded-full animate-[bounce_0.8s_infinite_100ms] h-2"></div>
-                                <div className="w-1 bg-green-400 rounded-full animate-[bounce_0.8s_infinite_200ms] h-4"></div>
-                                <div className="w-1 bg-green-400 rounded-full animate-[bounce_0.8s_infinite_300ms] h-3"></div>
-                                <div className="w-1 bg-green-400 rounded-full animate-[bounce_0.8s_infinite_400ms] h-4"></div>
-                                <div className="w-1 bg-green-400 rounded-full animate-[bounce_0.8s_infinite_500ms] h-2"></div>
-                            </div>
-                        </>
-                    )}
-                    <img 
-                        src="https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?auto=format&fit=crop&w=400&q=80" 
-                        alt="Farmer" 
-                        className={`w-full h-full object-cover rounded-full transition-transform duration-300 ${isSpeaking ? 'scale-110' : 'scale-100'}`}
-                    />
-                 </div>
-                 <h2 className="text-2xl font-semibold text-cream">Kisaan Vaani</h2>
-                 <p className="text-cream/60 mt-1 font-mono">{formatDuration(callDuration)}</p>
-                 
-                 <div className="flex items-center gap-2 mt-2">
-                    {isLoading || isSpeaking ? (
-                       <span className="text-gold text-sm flex items-center gap-2">
-                          <Loader2 size={14} className="animate-spin" /> 
-                          {isSpeaking ? "Speaking..." : "Thinking..."}
-                       </span>
-                    ) : isListening ? (
-                       <span className="text-green-400 text-sm flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-green-400 flex items-center justify-center animate-pulse"></span>
-                          Listening...
-                       </span>
-                    ) : (
-                       <span className="text-cream/40 text-sm">Waiting...</span>
-                    )}
-                 </div>
+                <div className={`relative w-24 h-24 rounded-full flex items-center justify-center mb-4 border transition-all duration-300 ${
+                  isSpeaking ? 'border-green-400 shadow-[0_0_20px_rgba(74,222,128,0.5)] scale-105' : 'border-gold/30 bg-gold/20'
+                }`}>
+                  {isSpeaking && (
+                    <>
+                      <div className="absolute inset-0 rounded-full border-2 border-green-500 animate-ping opacity-75" />
+                      <div className="absolute -bottom-2 flex gap-1 items-end h-5 z-10 bg-charcoal/80 px-2 py-1 rounded-full border border-green-500/30">
+                        {[100,200,300,400,500].map(d => (
+                          <div key={d} className="w-1 bg-green-400 rounded-full" style={{ height: d % 300 === 0 ? 16 : d % 200 === 0 ? 12 : 8, animation: `bounce 0.8s infinite ${d}ms` }} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <img
+                    src="https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?auto=format&fit=crop&w=400&q=80"
+                    alt="KisaanVaani"
+                    className={`w-full h-full object-cover rounded-full transition-transform duration-300 ${isSpeaking ? 'scale-110' : 'scale-100'}`}
+                  />
+                </div>
+                <h2 className="text-2xl font-semibold text-cream">Kisaan Vaani</h2>
+                <p className="text-cream/60 mt-1 font-mono">{formatDuration(callDuration)}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  {isLoading ? (
+                    <span className="text-gold text-sm flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Thinking...</span>
+                  ) : isSpeaking ? (
+                    <span className="text-green-400 text-sm flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Speaking...</span>
+                  ) : isListening ? (
+                    <span className="text-green-400 text-sm flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /> Listening...
+                    </span>
+                  ) : (
+                    <span className="text-cream/40 text-sm">Waiting...</span>
+                  )}
+                </div>
               </div>
 
-              {/* Live Transcripts (Small Chat Box) — pb-28 leaves room for pinned controls */}
-              <div className="flex-1 px-6 overflow-y-auto w-full custom-scrollbar flex flex-col opacity-80 mt-4 pb-28">
-                 {[...messages].reverse().slice(0, 3).reverse().map((msg, idx) => (
-                    <div key={msg.id} className={`mb-3 w-full flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'}`}>
-                       <div className={`max-w-[85%] rounded-2xl px-4 py-2 ${
-                          msg.role === 'USER' 
-                          ? 'bg-cream/10 text-white rounded-tr-sm border border-cream/5' 
-                          : 'bg-gold/10 text-gold rounded-tl-sm border border-gold/10'
-                       }`}>
-                          <p className="text-xs leading-relaxed">{msg.content}</p>
-                       </div>
+              {/* Chat transcript */}
+              <div
+                className="flex-1 px-4 overflow-y-auto w-full flex flex-col mt-2 pb-32"
+                ref={el => { if (el) el.scrollTop = el.scrollHeight }}
+              >
+                {messages.slice(-6).map(msg => (
+                  <div key={msg.id} className={`mb-2 w-full flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[88%] rounded-2xl px-3 py-2 ${
+                      msg.role === 'USER'
+                        ? 'bg-emerald-500/20 text-white rounded-tr-sm border border-emerald-500/20'
+                        : 'bg-gold/15 text-gold rounded-tl-sm border border-gold/15'
+                    }`}>
+                      <p className="text-[11px] font-medium mb-0.5 opacity-50">{msg.role === 'USER' ? 'You' : 'KisaanVaani'}</p>
+                      <p className="text-xs leading-relaxed">{msg.content}</p>
                     </div>
-                 ))}
-                 
-                 {partialTranscript && (
-                    <div className="flex justify-end mb-3">
-                       <div className="max-w-[85%] bg-cream/10 text-white border border-cream/5 rounded-2xl rounded-tr-sm px-4 py-2">
-                          <p className="text-xs italic">{partialTranscript}</p>
-                       </div>
-                    </div>
-                 )}
-                 <div ref={messagesEndRef} />
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
               </div>
 
-              {/* Phone Controls — ALWAYS PINNED TO BOTTOM with z-50, never hidden */}
+              {/* Live user speech — always visible when speaking */}
+              {(partialTranscript || phase === 'listening') && (
+                <div className="absolute left-4 right-4 bottom-28 z-40">
+                  <div className={`rounded-2xl px-4 py-2.5 transition-all border ${
+                    partialTranscript
+                      ? 'bg-emerald-950/90 border-emerald-500/40 shadow-lg shadow-emerald-900/30'
+                      : 'bg-charcoal/60 border-cream/10'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                      <p className="text-xs text-emerald-300 leading-relaxed flex-1">
+                        {partialTranscript || <span className="opacity-40 italic">Listening…</span>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Controls */}
               <div className="absolute bottom-0 left-0 right-0 pb-8 pt-4 px-8 flex justify-center gap-8 w-full bg-charcoal/95 rounded-t-3xl border-t border-cream/10 backdrop-blur-md z-50 shadow-[0_-8px_30px_rgba(0,0,0,0.4)]">
-                 <button 
-                    onClick={() => {
-                       setIsMuted(!isMuted);
-                       if (!isMuted && isListening && recognitionRef.current) recognitionRef.current.stop();
-                       if (isMuted && !isListening && recognitionRef.current) {
-                           try { recognitionRef.current.start(); } catch(e){}
-                       }
-                    }}
-                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
-                       isMuted ? 'bg-cream/20 text-white' : 'bg-cream/5 text-white/70 hover:bg-cream/10'
-                    }`}
-                    title={isMuted ? 'Unmute' : 'Mute'}
-                 >
-                    {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-                 </button>
-                 
-                 <button 
-                    onClick={() => {}}
-                     className="w-14 h-14 rounded-full bg-cream/5 text-white/70 flex items-center justify-center hover:bg-cream/10 transition-colors"
-                     title="Speaker"
-                 >
-                    <Volume2 size={22} />
-                 </button>
-
-                  {/* RED END CALL — always clickable, always on top */}
-                 <button 
-                    onClick={endCall}
-                    className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-95 shadow-lg shadow-red-500/30 transition-all hover:scale-105"
-                    title="End Call"
-                 >
-                    <PhoneOff size={22} />
-                 </button>
+                <button onClick={toggleMute}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isMuted ? 'bg-cream/20 text-white' : 'bg-cream/5 text-white/70 hover:bg-cream/10'}`}
+                  title={isMuted ? 'Unmute' : 'Mute'}>
+                  {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                </button>
+                <button className="w-14 h-14 rounded-full bg-cream/5 text-white/70 flex items-center justify-center hover:bg-cream/10 transition-colors" title="Speaker">
+                  <Volume2 size={22} />
+                </button>
+                <button onClick={triggerEndCall}
+                  className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-95 shadow-lg shadow-red-500/30 transition-all hover:scale-105"
+                  title="End Call">
+                  <PhoneOff size={22} />
+                </button>
               </div>
 
             </div>
@@ -677,11 +541,14 @@ export default function LiveAgent() {
   )
 }
 
-// Minimal UI Icons
 const SignalIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/>
+  </svg>
 )
 
 const BatteryIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/>
+  </svg>
 )

@@ -4,9 +4,15 @@ import { PrismaClient } from '@prisma/client';
 import { getContextualPrompt } from '../../../lib/orchestrator';
 import { textToSpeech } from '../../../lib/sarvam';
 
-const prisma = new PrismaClient();
+// Lazy init to avoid crashing at module load if DB not ready
+let prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!prisma) prisma = new PrismaClient();
+  return prisma;
+}
+
 const apiKey = process.env.MISTRAL_API_KEY || '';
-const client = new Mistral({ apiKey: apiKey });
+const client = new Mistral({ apiKey });
 
 export async function POST(req: Request) {
   try {
@@ -17,81 +23,56 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Transcript is required' }, { status: 400 });
     }
 
-    // Get contextual prompt with data from all sources
+    // Get contextual prompt — passes full history so orchestrator mines context from entire conversation
     const systemPrompt = await getContextualPrompt(farmerId, transcript, language, history);
 
-    // Format previous messages
+    // Format previous messages (role mapping: USER→user, ASSISTANT→assistant)
     const formattedHistory = history.map((msg: any) => ({
-      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      role: msg.role === 'assistant' || msg.role === 'ASSISTANT' ? 'assistant' : 'user',
       content: msg.content
     }));
 
-    // Build the final message array with system prompt, history, and current user message
+    // Build final message array — history already contains previous turns, add current user msg once
     const finalMessages = [
       { role: 'system', content: systemPrompt },
       ...formattedHistory,
-      { role: 'user', content: transcript }  // Always add current user message
+      { role: 'user', content: transcript }
     ];
 
-    // Call Mistral AI to get the agent's response
+    // Use mistral-small for speed (voice needs <3s response time)
     const chatResponse = await client.chat.complete({
-      model: 'mistral-large-latest',
+      model: 'mistral-small-latest',
       messages: finalMessages as any,
-      maxTokens: 1024,
-      temperature: 0.7,
+      maxTokens: 300,      // Cap tokens — voice responses must be short
+      temperature: 0.65,   // Slightly creative but factual
     });
 
     let rawReply = chatResponse.choices[0].message.content as string;
     let endCall = false;
 
-    // Check if the model decided to end the call
     if (rawReply.includes('[END_CALL]')) {
       endCall = true;
-      rawReply = rawReply.replace(/\[END_CALL\]/g, '').replace('[END_CALL]', '').trim();
-    }
-    
-    const reply = rawReply;
-
-    // Get audio from Sarvam TTS
-    let audioBase64 = null;
-    try {
-      audioBase64 = await textToSpeech(reply, language);
-      console.log('[TTS] Audio generated:', audioBase64 ? `YES (${audioBase64.length} chars)` : 'NO - EMPTY');
-      
-      if (!audioBase64) {
-        console.warn('[TTS] Warning: Audio generation returned null/empty');
-      }
-    } catch (audioError) {
-      console.error('[TTS] Failed to generate audio:', audioError);
-      // Continue without audio - don't block the response
+      rawReply = rawReply.replace(/\[END_CALL\]/g, '').trim();
     }
 
-    // Save conversation to database
-    try {
-      await prisma.conversation.create({
-        data: {
-          userId,
-          userMessage: transcript,
-          aiMessage: reply,
-        },
-      });
-    } catch (dbError) {
-      console.error('[DB] Failed to save:', dbError);
-      // Don't block response even if DB fails
-    }
+    const reply = rawReply.trim();
 
-    console.log('[API] Returning response with audio:', audioBase64 ? 'YES' : 'NO');
+    // Run TTS and DB save in parallel to save time
+    const [audioBase64] = await Promise.allSettled([
+      textToSpeech(reply, language).catch(e => { console.error('[TTS]', e); return null; }),
+      getPrisma().conversation.create({
+        data: { userId, userMessage: transcript, aiMessage: reply }
+      }).catch(e => console.error('[DB]', e))
+    ]).then(results => [
+      results[0].status === 'fulfilled' ? results[0].value : null
+    ]);
 
-    return NextResponse.json({ 
-      reply,
-      language,
-      audio: audioBase64,
-      endCall,
-      success: true
-    });
-  } catch (error) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error', success: false }, { status: 500 });
+    console.log(`[API] ✅ Reply: "${reply.substring(0, 60)}..." | Audio: ${audioBase64 ? 'YES' : 'NO'} | EndCall: ${endCall}`);
+
+    return NextResponse.json({ reply, language, audio: audioBase64, endCall, success: true });
+
+  } catch (error: any) {
+    console.error('[API] ❌ Error:', error?.message || error);
+    return NextResponse.json({ error: error?.message || 'Internal Server Error', success: false }, { status: 500 });
   }
 }
-
