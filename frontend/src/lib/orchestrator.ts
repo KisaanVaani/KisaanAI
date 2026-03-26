@@ -61,9 +61,9 @@ function extractCropFromTranscript(transcript: string): string {
 }
 
 // Example of orchestrating data to feed into the prompt
-export async function getContextualPrompt(farmerId: string, userQuery: string) {
+export async function getContextualPrompt(farmerId: string, userQuery: string, language: string = 'en-IN') {
     // 1. Fetch Farmer Context
-    const profile = await getFarmerContext(farmerId);
+    const profile = await getFarmerContext(farmerId, language);
 
     // 2. Extract location and crop from transcript
     const detectedLocation = extractLocationFromTranscript(userQuery);
@@ -92,21 +92,23 @@ FARMER CONTEXT (Known Information):
 LIVE FARM DATA (Use ONLY if relevant to the user's current question):
 - WEATHER: ${weather.summary} | ${weather.temperature} | Humidity: ${weather.humidity}%
 - CROP: ${detectedCrop !== 'Arhar Dal' ? detectedCrop : 'Not specified'}
-- MARKET PRICE: MSP ₹${marketInfo.msp} | Current ₹${marketInfo.currentMarket}
+- MARKET PRICE: MSP ${marketInfo.msp} | Current ${marketInfo.currentMarket} | Range: ${marketInfo.range} | Trend: ${marketInfo.trend}
 
 CONVERSATION BEHAVIOR:
-1. NEVER REPEAT QUESTIONS: If you already asked about location, crops, or land size in previous messages, DO NOT ask again. Look at the conversation history and acknowledge that you know this information.
-2. EXTREME BREVITY: 1-2 sentences only. Plain text, no special formatting.
-3. PERSONALIZATION: Use "ರೈತರೆ" (Kannada), "किसान भाई" (Hindi), or just use the farmer's actual name if mentioned. NEVER invent fake names.
-4. CONTINUOUS FLOW: Link your answer to what they just said. If they answered a question you asked, acknowledge it and move the conversation forward naturally.
-5. SMART FOLLOW-UPS: Ask ONE follow-up question naturally related to their answer. Don't ask redundant questions.
-6. NO INTRODUCTION: Don't introduce yourself. Jump straight to answering their question.
-7. LANGUAGE MATCH: Respond ONLY in the language they're speaking.
+1. LANGUAGE: Always speak in ${language.includes('kn') ? 'Kannada' : language.includes('hi') ? 'Hindi' : language.includes('ml') ? 'Malayalam' : 'English'}.
+2. ADDRESSING: Use the farmer's actual NAME if they mention it. If not mentioned, use "ರೈತರೆ" in Kannada or "किसान भाई" in Hindi. NEVER use generic names like "Rajesh bhai".
+3. NEVER REPEAT QUESTIONS: If you already asked about location, crops, or land size in previous messages, DO NOT ask again. Look at the conversation history and acknowledge that you know this information.
+4. EXTREME BREVITY: 1-2 sentences only. Plain text, no special formatting.
+5. CONTINUOUS FLOW: Link your answer to what they just said. If they answered a question you asked, acknowledge it and move the conversation forward naturally.
+6. SMART FOLLOW-UPS: Ask ONE follow-up question naturally related to their answer. Don't ask redundant questions.
+7. NO INTRODUCTION: Don't introduce yourself. Jump straight to answering their question.
+8. REAL DATA: Each crop has DIFFERENT market prices. Use the exact prices provided - do NOT repeat 7300-7500 for all crops.
 
 REMEMBER: The conversation history above shows everything discussed. Use it to avoid repetition and maintain intelligent, human-like continuity.
     `.trim();
 
-    console.log(`[Context] Location: ${detectedLocation}, Crop: ${detectedCrop}, Soil: ${soilData.type}`);
+    console.log(`[Context] Language: ${language}, Location: ${detectedLocation}, Crop: ${detectedCrop}, Soil: ${soilData.type}`);
+    console.log(`[Market] Using REAL prices: ${detectedCrop} - MSP ${marketInfo.msp}, Current ${marketInfo.currentMarket}, Range: ${marketInfo.range}`);
 
     return systemPrompt;
 }

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     // Get contextual prompt with data from all sources
-    const systemPrompt = await getContextualPrompt(farmerId, transcript);
+    const systemPrompt = await getContextualPrompt(farmerId, transcript, language);
 
     // Format previous messages
     const formattedHistory = history.map((msg: any) => ({
