@@ -218,8 +218,6 @@ export default function LiveAgent() {
     } catch(e) {}
 
     try {
-      if (audioContextRef.current) audioContextRef.current.pause();
-      
       setIsLoading(true)
       const conversationId = Date.now().toString()
       setConversationId(conversationId)
@@ -339,6 +337,10 @@ export default function LiveAgent() {
         audioContextRef.current = new Audio();
       }
       const audio = audioContextRef.current;
+      
+      // Reset audio element to clean state
+      audio.pause();
+      audio.currentTime = 0;
       audio.src = finalAudioUri;
       
       // Critical: Set volume explicitly and ensure not muted
@@ -402,11 +404,16 @@ export default function LiveAgent() {
             console.log(`✅ Audio playing successfully!`);
           })
           .catch((e: DOMException) => {
-            console.error(`❌ Audio play() rejected:`, {
-              name: e.name,
-              message: e.message,
-              code: e.code
-            });
+            // AbortError is normal when play is interrupted by pause() - ignore it
+            if (e.name === 'AbortError') {
+              console.log(`🔊 Audio play interrupted (normal)`);
+            } else {
+              console.error(`❌ Audio play() rejected:`, {
+                name: e.name,
+                message: e.message,
+                code: e.code
+              });
+            }
             
             // If it's a NotAllowedError, try with setTimeout (sometimes helps with autoplay policies)
             if (e.name === 'NotAllowedError') {
