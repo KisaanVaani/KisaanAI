@@ -1,0 +1,1 @@
+{"name": "kisaan-root", "version": "1.0.0", "private": true, "scripts": { "dev": "cd frontend && npm run dev" }, "dependencies": { "concurrently": "^8.2.2" }}

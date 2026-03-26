@@ -22,25 +22,18 @@ export async function speechToText(audioData: Blob | string) {
 // Text to Speech - Returns audio as base64 string
 export async function textToSpeech(text: string, language: string = 'en-IN'): Promise<string | null> {
     if (!SARVAM_API_KEY) {
-        console.error('[Sarvam] API key missing');
+        console.error('[Sarvam] ❌ API key missing!');
         return null;
     }
 
     try {
         const speaker = LANGUAGE_SPEAKER_MAP[language] || 'aditya';
-        const targetLanguage = language.split('-')[0]; // 'en', 'hi', 'kn'
-        const languageCodeMap: Record<string, string> = {
-            'en': 'en-IN',
-            'hi': 'hi-IN',
-            'kn': 'kn-IN',
-            'ta': 'ta-IN',
-            'te': 'te-IN',
-            'ml': 'ml-IN',
-            'bn': 'bn-IN',
-        };
-        const targetLanguageCode = languageCodeMap[targetLanguage] || 'en-IN';
+        const targetLanguageCode = language || 'en-IN';
 
-        console.log(`[Sarvam] TTS Request: text=${text.substring(0, 50)}..., language=${targetLanguageCode}, speaker=${speaker}`);
+        console.log(`[Sarvam] 🎤 TTS Request START`);
+        console.log(`  Text: "${text.substring(0, 60)}..."`);
+        console.log(`  Language: ${targetLanguageCode}`);
+        console.log(`  Speaker: ${speaker}`);
 
         const response = await axios.post(
             `${SARVAM_API_URL}/text-to-speech`,
@@ -48,7 +41,7 @@ export async function textToSpeech(text: string, language: string = 'en-IN'): Pr
                 inputs: [text],
                 target_language_code: targetLanguageCode,
                 speaker: speaker,
-                pace: 1.2,  // Faster, more natural pace
+                pace: 1.0,
                 speech_sample_rate: 16000,
                 enable_preprocessing: true,
                 model: 'bulbul:v3'
@@ -58,20 +51,55 @@ export async function textToSpeech(text: string, language: string = 'en-IN'): Pr
                     'Content-Type': 'application/json',
                     'api-subscription-key': SARVAM_API_KEY
                 },
-                timeout: 30000
+                timeout: 30000,
+                responseType: 'json'
             }
         );
 
-        if (response.data && response.data.audios && response.data.audios[0]) {
-            console.log('[Sarvam] TTS Success - audio returned');
-            // Sarvam returns base64 encoded audio
-            return response.data.audios[0];
-        } else {
-            console.error('[Sarvam] No audio in response:', response.data);
+        console.log(`[Sarvam] ✅ Response received (Status: ${response.status})`);
+        
+        // Check the response structure
+        if (!response.data) {
+            console.error('[Sarvam] ❌ Empty response data');
             return null;
         }
+
+        console.log(`[Sarvam] Response keys:`, Object.keys(response.data));
+        
+        // Handle different response formats
+        let audioBase64 = null;
+        
+        if (response.data.audios && Array.isArray(response.data.audios) && response.data.audios[0]) {
+            audioBase64 = response.data.audios[0];
+            console.log(`[Sarvam] ✅ Audio from audios array (${(audioBase64 as string).length} chars)`);
+        } else if (response.data.audio) {
+            audioBase64 = response.data.audio;
+            console.log(`[Sarvam] ✅ Audio from audio field (${(audioBase64 as string).length} chars)`);
+        } else if (typeof response.data === 'string' && response.data.length > 100) {
+            // Entire response might be the audio base64
+            audioBase64 = response.data;
+            console.log(`[Sarvam] ✅ Audio is entire response (${(audioBase64 as string).length} chars)`);
+        }
+
+        if (!audioBase64 || (typeof audioBase64 === 'string' && audioBase64.length < 100)) {
+            console.error('[Sarvam] ❌ Invalid audio data', {
+                audioLength: audioBase64?.length || 0,
+                isString: typeof audioBase64 === 'string'
+            });
+            console.error('[Sarvam] Full response (first 500 chars):', JSON.stringify(response.data).substring(0, 500));
+            return null;
+        }
+
+        console.log(`[Sarvam] ✅✅ TTS Complete - Ready to play (${(audioBase64 as string).length} chars)`);
+        return audioBase64 as string;
+
     } catch (error: any) {
-        console.error('[Sarvam] TTS Error:', error.response?.data || error.message);
+        console.error('[Sarvam] ❌ TTS Error:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            message: error.message,
+            data: error.response?.data ? JSON.stringify(error.response.data).substring(0, 200) : 'no data'
+        });
         return null;
     }
 }
