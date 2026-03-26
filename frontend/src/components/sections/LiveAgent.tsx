@@ -220,20 +220,63 @@ export default function LiveAgent() {
     try {
       if (audioContextRef.current) audioContextRef.current.pause();
       
+      setIsLoading(true)
       const conversationId = Date.now().toString()
       setConversationId(conversationId)
       setIsCallActive(true)
-      setMessages([]) // Start with empty messages - no greeting message shown
+
+      const startMessagePlaceholder = language === 'hi-IN' 
+        ? "नमस्ते। किसान वाणी में आपका स्वागत है। मैं आपकी कैसी मदद कर सकता हूँ?" 
+        : language === 'kn-IN'
+          ? "ನಮಸ್ಕಾರ. ಕಿಸಾನ್ ವಾಣಿಗೆ ಸ್ವಾಗತ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?"
+          : "Hello. Welcome to KisanVaani. How can I help you today?";
+
+      setMessages([{
+        id: '1',
+        role: 'ASSISTANT',
+        content: startMessagePlaceholder,
+        timestamp: new Date()
+      }])
       
-      // Start voice recognition so user can speak immediately
-      if (!isMutedRef.current && recognitionRef.current) {
-        setTimeout(() => {
-          toggleListening();
-        }, 300);
+      const welcomePrompt = language === 'kn-IN' ? "ನಮಸ್ಕಾರ" : language === 'hi-IN' ? "नमस्ते" : "Hello, how can you help me today?";
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: welcomePrompt,
+          language: language,
+          userId: conversationId,
+          farmerId: 'farmer-001'
+        })
+      })
+      const data = await response.json()
+      
+      if (data.reply) {
+        setMessages([{
+          id: '1',
+          role: 'ASSISTANT',
+          content: data.reply,
+          timestamp: new Date()
+        }])
+      }
+
+      if (data.audio) {
+         playAudio(data.audio, data.endCall);
+      } else {
+         setTimeout(() => {
+             if (data.endCall) {
+                 endCall();
+             } else if (!isMutedRef.current && recognitionRef.current) {
+                 toggleListening();
+             }
+         }, 2000);
       }
       
     } catch (error) {
       alert('Failed to start conversation. Please try again.')
+    } finally {
+      setIsLoading(false)
     }
   }
 
