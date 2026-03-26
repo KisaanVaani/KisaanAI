@@ -231,6 +231,7 @@ export default function LiveAgent() {
           ? "ನಮಸ್ಕಾರ. ಕಿಸಾನ್ ವಾಣಿಗೆ ಸ್ವಾಗತ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?"
           : "Hello. Welcome to KisanVaani. How can I help you today?";
 
+      // Just set the welcome message locally - DON'T send to API yet
       setMessages([{
         id: '1',
         role: 'ASSISTANT',
@@ -238,39 +239,11 @@ export default function LiveAgent() {
         timestamp: new Date()
       }])
       
-      const welcomePrompt = language === 'kn-IN' ? "ನಮಸ್ಕಾರ" : language === 'hi-IN' ? "नमस्ते" : "Hello, how can you help me today?";
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: welcomePrompt,
-          language: language,
-          userId: conversationId,
-          farmerId: 'farmer-001'
-        })
-      })
-      const data = await response.json()
-      
-      if (data.reply) {
-        setMessages([{
-          id: '1',
-          role: 'ASSISTANT',
-          content: data.reply,
-          timestamp: new Date()
-        }])
-      }
-
-      if (data.audio) {
-         playAudio(data.audio, data.endCall);
-      } else {
-         setTimeout(() => {
-             if (data.endCall) {
-                 endCall();
-             } else if (!isMutedRef.current && recognitionRef.current) {
-                 toggleListening();
-             }
-         }, 2000);
+      // Start voice recognition so user can speak
+      if (!isMutedRef.current && recognitionRef.current) {
+        setTimeout(() => {
+          toggleListening();
+        }, 500);
       }
       
     } catch (error) {
