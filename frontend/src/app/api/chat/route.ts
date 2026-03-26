@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     // Get contextual prompt with data from all sources
-    const systemPrompt = await getContextualPrompt(farmerId, transcript, language);
+    const systemPrompt = await getContextualPrompt(farmerId, transcript, language, history);
 
     // Format previous messages
     const formattedHistory = history.map((msg: any) => ({
@@ -35,8 +35,9 @@ export async function POST(req: Request) {
 
     // Call Mistral AI to get the agent's response
     const chatResponse = await client.chat.complete({
-      model: 'mistral-large-latest',
+      model: 'mistral-small-latest',
       messages: finalMessages as any,
+      maxTokens: 100,
     });
 
     let rawReply = chatResponse.choices[0].message.content as string;

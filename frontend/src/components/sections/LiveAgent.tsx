@@ -52,6 +52,24 @@ export default function LiveAgent() {
   const audioContextRef = useRef<HTMLAudioElement | null>(null)
   const callTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Initialize audio element on mount - MUST be in DOM to produce sound
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !audioContextRef.current) {
+      const audio = document.createElement('audio');
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      audioContextRef.current = audio;
+      console.log('✅ Audio element created and added to DOM');
+    }
+    return () => {
+      if (audioContextRef.current && audioContextRef.current.parentNode) {
+        try {
+          audioContextRef.current.parentNode.removeChild(audioContextRef.current);
+        } catch(e) {}
+      }
+    };
+  }, []);
+
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId])
   useEffect(() => { isCallActiveRef.current = isCallActive; }, [isCallActive])
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted])
@@ -207,19 +225,7 @@ export default function LiveAgent() {
       return;
     }
 
-    // Unlock audio context on user gesture (fixes autoplay blocks on Chrome/Safari)
     try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new Audio();
-      }
-      audioContextRef.current.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-      audioContextRef.current.volume = 0.01;
-      audioContextRef.current.play().catch(e => console.log("Silent audio block:", e.name));
-    } catch(e) {}
-
-    try {
-      if (audioContextRef.current) audioContextRef.current.pause();
-      
       setIsLoading(true)
       const conversationId = Date.now().toString()
       setConversationId(conversationId)
@@ -300,17 +306,13 @@ export default function LiveAgent() {
   
   const playAudio = useCallback((base64Audio: string, shouldEndCall: boolean = false) => {
     if (!base64Audio) {
-      console.error("❌ playAudio: No audio data provided");
+      console.error('❌ No audio data');
+      isSpeakingRef.current = false;
+      setIsSpeaking(false);
       return;
     }
     
-    console.log(`🔊 playAudio called: ${base64Audio.substring(0, 30)}...`);
-    console.log(`   Audio length: ${base64Audio.length} chars`);
-    
-    // Check if it looks like valid base64
-    const isValidBase64 = /^[A-Za-z0-9+/=]+$/.test(base64Audio.substring(0, 100)) || base64Audio.startsWith('UklGR');
-    console.log(`   Valid base64: ${isValidBase64}`);
-    
+    console.log('🔊 playAudio called, size:', Math.round(base64Audio.length / 1024), 'KB');
     isSpeakingRef.current = true;
     setIsSpeaking(true);
     
@@ -319,119 +321,79 @@ export default function LiveAgent() {
     }
 
     try {
-      let finalAudioUri = base64Audio;
-      if (!base64Audio.startsWith("data:") && !base64Audio.startsWith("blob:")) {
-        try {
-          const binaryString = window.atob(base64Audio);
-          const len = binaryString.length;
-          const bytes = new Uint8Array(len);
-          for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const blob = new Blob([bytes], { type: "audio/wav" });
-          finalAudioUri = URL.createObjectURL(blob);
-        } catch (e) {
-          finalAudioUri = `data:audio/wav;base64,${base64Audio}`;
-        }
+      // Decode base64 properly
+      const binaryStr = atob(base64Audio);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
       }
       
-      if (!audioContextRef.current) {
-        audioContextRef.current = new Audio();
-      }
-      const audio = audioContextRef.current;
-      audio.src = finalAudioUri;
+      // Create blob and URL
+      const blob = new Blob([bytes.buffer], { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(blob);
+      console.log('🔊 Blob URL created:', audioUrl.substring(0, 50));
       
-      // Critical: Set volume explicitly and ensure not muted
+      // Get or create audio element
+      let audio = audioContextRef.current;
+      if (!audio) {
+        console.log('🔊 Creating new audio element');
+        audio = new Audio();
+      }
+      
+      // Reset and configure
+      audio.pause();
+      audio.currentTime = 0;
       audio.volume = 1.0;
       audio.muted = false;
       
-      console.log(`🔊 Audio element created - Volume: ${audio.volume}, Muted: ${audio.muted}`);
+      console.log(`🔊 Audio config: volume=${audio.volume}, muted=${audio.muted}`);
       
-      audio.oncanplay = () => {
-        console.log(`🔊 Audio can play - Duration: ${audio.duration}s`);
-      };
-      
-      audio.onplaying = () => {
-        console.log(`🔊 Audio is PLAYING 🔊🔊🔊`);
-      };
-      
-      audio.onended = () => {
-        console.log(`🔊 Audio playback ENDED`);
+      // Set up event handlers
+      const onEnded = () => {
+        console.log('🔊 Audio ended');
         isSpeakingRef.current = false;
         setIsSpeaking(false);
-        
         if (shouldEndCall) {
-           console.log(`🔊 Ending call`);
            endCall();
-           return;
-        }
-        
-        if (isCallActiveRef.current && !isMutedRef.current) {
-           if (recognitionRef.current) {
-              try {
-                 console.log(`🔊 Resuming listening`);
-                 recognitionRef.current.start();
-              } catch(e) {}
-           }
+        } else if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
+           try {
+             recognitionRef.current.start();
+             console.log('🔊 Listening resumed');
+           } catch(e) {console.error('Resume listen error:', e);}
         }
       };
       
-      audio.onerror = () => {
-          console.error(`❌ Audio error: ${audio.error?.message || 'Unknown'}`);
-          isSpeakingRef.current = false;
-          setIsSpeaking(false);
-          if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
-               try { recognitionRef.current.start(); } catch(e) {}
-          }
-      };
-      
-      // Add error handler for network issues
-      audio.addEventListener('error', (e) => {
-        console.error(`❌ Audio network error:`, e);
+      const onError = (e: any) => {
+        console.error('❌ Audio error:', e?.message || e);
         isSpeakingRef.current = false;
         setIsSpeaking(false);
-      });
+        if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
+           try { recognitionRef.current.start(); } catch(e) {}
+        }
+      };
       
-      // Try to play with proper error handling
-      console.log(`🔊 Attempting to play audio...`);
+      audio.onended = onEnded;
+      audio.onerror = onError;
+      
+      // Set source and play - CRITICAL: use attribute to ensure it persists
+      audio.src = audioUrl;
+      
+      console.log('🔊 Calling play()...');
       const playPromise = audio.play();
       
-      if (playPromise !== undefined) {
+      if (playPromise) {
         playPromise
           .then(() => {
-            console.log(`✅ Audio playing successfully!`);
+            console.log('✅✅✅ AUDIO PLAYING NOW ✅✅✅');
           })
-          .catch((e: DOMException) => {
-            console.error(`❌ Audio play() rejected:`, {
-              name: e.name,
-              message: e.message,
-              code: e.code
-            });
-            
-            // If it's a NotAllowedError, try with setTimeout (sometimes helps with autoplay policies)
-            if (e.name === 'NotAllowedError') {
-              console.log(`🔊 Autoplay blocked - retrying with user context...`);
-              setTimeout(() => {
-                if (audioContextRef.current && isCallActiveRef.current) {
-                  audioContextRef.current.play().catch(retryErr => 
-                    console.error(`❌ Retry failed:`, retryErr.message)
-                  );
-                }
-              }, 100);
-            }
-            
+          .catch((error: any) => {
+            console.error('❌ Play failed:', error.name, '-', error.message);
             isSpeakingRef.current = false;
             setIsSpeaking(false);
-            
-            if (isCallActiveRef.current && !isMutedRef.current && recognitionRef.current) {
-                 try { recognitionRef.current.start(); } catch(e) {}
-            }
           });
-      } else {
-        console.log(`🔊 Audio play returned immediately (older browser)`);
       }
-    } catch (err) {
-      console.error(`❌ Exception in playAudio:`, err);
+    } catch (error) {
+      console.error('❌ Error in playAudio:', error);
       isSpeakingRef.current = false;
       setIsSpeaking(false);
     }

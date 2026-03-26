@@ -141,7 +141,7 @@ export async function getMarketPrices(crop: string, location: string) {
     responseCache[cacheKey] = { data: fallback, timestamp: Date.now() };
     return fallback;
   }
-
+}
 
 // 4. Mocking ICAR / FASAL (Crop Calendar)
 export async function getCropCalendar(crop: string, season: string) {
