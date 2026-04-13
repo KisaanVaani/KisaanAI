@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { RotateCcw } from 'lucide-react'
+import { PhoneCall, RotateCcw, UserRound } from 'lucide-react'
 
 interface Message {
   speaker: 'farmer' | 'ai'
@@ -131,7 +131,9 @@ export default function PhoneSimulator() {
                       transition={{ duration: 1.5, repeat: Infinity }}
                       className="text-center"
                     >
-                      <div className="text-4xl mb-3">📞</div>
+                      <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full border border-gold/40 text-gold">
+                        <PhoneCall size={24} />
+                      </div>
                       <p className="text-gold text-lg font-semibold">Dialing 896...</p>
                     </motion.div>
                   </div>
@@ -163,7 +165,15 @@ export default function PhoneSimulator() {
                       }`}
                     >
                       <p className="text-sm font-medium mb-1 opacity-70">
-                        {msg.speaker === 'farmer' ? '👨‍🌾 Farmer' : '🤖 KisanVaani'}
+                        {msg.speaker === 'farmer' ? (
+                          <span className="inline-flex items-center gap-1">
+                            <UserRound size={12} /> Farmer
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            <PhoneCall size={12} /> KisanVaani
+                          </span>
+                        )}
                       </p>
                       <p className="text-base leading-relaxed">
                         {msg.text}

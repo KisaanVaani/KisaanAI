@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 import { motion, useInView, useMotionValue, useTransform, animate } from 'framer-motion'
+import { Sprout } from 'lucide-react'
 
 interface MetricProps {
   value: string
@@ -82,11 +83,11 @@ export default function ImpactMetrics() {
   return (
     <section className="bg-gold py-16 relative overflow-hidden">
       {/* Decorative wheat stalks */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 text-6xl opacity-20">
-        🌾
+      <div className="absolute left-6 top-1/2 -translate-y-1/2 opacity-20 text-forest">
+        <Sprout size={48} />
       </div>
-      <div className="absolute right-0 top-1/2 -translate-y-1/2 text-6xl opacity-20">
-        🌾
+      <div className="absolute right-6 top-1/2 -translate-y-1/2 opacity-20 text-forest">
+        <Sprout size={48} />
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">

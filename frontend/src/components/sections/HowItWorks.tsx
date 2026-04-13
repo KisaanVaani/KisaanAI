@@ -2,7 +2,8 @@
 
 import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, AudioLines, BarChart3, Bot, Gauge, type LucideIcon, Laptop2, Leaf, Phone, Settings, ShieldCheck, Workflow } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 
 interface FlowNodeProps {
   title: string
@@ -10,12 +11,13 @@ interface FlowNodeProps {
   color: string
   bgColor: string
   delay: number
-  icon?: string
+  icon?: LucideIcon
 }
 
 function FlowNode({ title, description, color, bgColor, delay, icon }: FlowNodeProps) {
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-50px' })
+  const Icon = icon
 
   const descArray = Array.isArray(description) ? description : [description]
 
@@ -27,7 +29,11 @@ function FlowNode({ title, description, color, bgColor, delay, icon }: FlowNodeP
       transition={{ duration: 0.6, delay, ease: 'easeOut' }}
       className={`relative rounded-2xl p-6 border-l-4 ${color} ${bgColor} backdrop-blur-sm`}
     >
-      {icon && <div className="text-3xl mb-2">{icon}</div>}
+      {Icon && (
+        <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/70 text-charcoal">
+          <Icon size={18} />
+        </div>
+      )}
       <h3 className="font-display text-xl font-bold text-charcoal mb-2">{title}</h3>
       <div className="space-y-1">
         {descArray.map((desc, idx) => (
@@ -44,13 +50,17 @@ interface DataSourceCardProps {
   name: string
   color: string
   items: string[]
-  icon: string
+  icon: LucideIcon
 }
 
 function DataSourceCard({ name, color, items, icon }: DataSourceCardProps) {
+  const Icon = icon
+
   return (
-    <div className={`rounded-xl p-4 border-l-4 ${color} bg-white/80 backdrop-blur-sm`}>
-      <div className="text-2xl mb-2">{icon}</div>
+    <Card className={`rounded-xl p-4 border-l-4 ${color} bg-white/80 backdrop-blur-sm`}>
+      <div className="mb-2 text-charcoal/80">
+        <Icon size={18} />
+      </div>
       <h4 className="font-bold text-sm text-charcoal mb-2">{name}</h4>
       <div className="space-y-0.5">
         {items.map((item, idx) => (
@@ -59,7 +69,7 @@ function DataSourceCard({ name, color, items, icon }: DataSourceCardProps) {
           </p>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -92,7 +102,7 @@ export default function HowItWorks() {
             color="border-teal-500"
             bgColor="bg-teal-50"
             delay={0}
-            icon="👨‍🌾"
+            icon={Phone}
           />
 
           <div className="flex justify-center">
@@ -105,7 +115,7 @@ export default function HowItWorks() {
             color="border-purple-500"
             bgColor="bg-purple-50"
             delay={0.1}
-            icon="🎙️"
+            icon={AudioLines}
           />
 
           <div className="flex justify-center">
@@ -118,7 +128,7 @@ export default function HowItWorks() {
             color="border-blue-600"
             bgColor="bg-blue-50"
             delay={0.2}
-            icon="⚙️"
+            icon={Workflow}
           />
 
           <div className="flex justify-center">
@@ -135,25 +145,25 @@ export default function HowItWorks() {
               name="AgriStack"
               color="border-green-500"
               items={['Farmer identity', 'Land records', 'PM-KISAN']}
-              icon="🌱"
+              icon={Leaf}
             />
             <DataSourceCard
               name="IMD slash OpenWx"
               color="border-blue-500"
               items={['7-day forecast', 'Rainfall data', 'Temperature']}
-              icon="🌦️"
+              icon={Gauge}
             />
             <DataSourceCard
               name="ICAR slash FASAL"
               color="border-amber-500"
               items={['Soil health', 'Crop calendar', 'Disease alerts']}
-              icon="🧪"
+              icon={Settings}
             />
             <DataSourceCard
               name="Agmarknet"
               color="border-red-500"
               items={['Mandi prices', 'MSP updates', 'Market trends']}
-              icon="📊"
+              icon={BarChart3}
             />
           </motion.div>
 
@@ -167,7 +177,7 @@ export default function HowItWorks() {
             color="border-violet-600"
             bgColor="bg-violet-50"
             delay={0.4}
-            icon="🧠"
+            icon={Bot}
           />
 
           <div className="flex justify-center">
@@ -180,7 +190,7 @@ export default function HowItWorks() {
             color="border-emerald-500"
             bgColor="bg-emerald-50"
             delay={0.5}
-            icon="🔊"
+            icon={AudioLines}
           />
 
           <div className="flex justify-center">
@@ -193,7 +203,7 @@ export default function HowItWorks() {
             color="border-forest"
             bgColor="bg-forest text-cream"
             delay={0.6}
-            icon="✅"
+            icon={ShieldCheck}
           />
 
           <div className="flex justify-center">
@@ -206,7 +216,7 @@ export default function HowItWorks() {
             color="border-gray-400"
             bgColor="bg-gray-50"
             delay={0.7}
-            icon="💻"
+            icon={Laptop2}
           />
         </div>
       </div>

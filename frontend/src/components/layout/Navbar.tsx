@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Menu, X } from 'lucide-react'
+import { Menu, Sprout, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -36,8 +38,9 @@ export default function Navbar() {
           {/* Logo */}
           <div className="flex items-center space-x-2">
             <a href="#" className="flex flex-col">
-              <span className="font-display text-2xl text-gold font-bold flex items-center">
-                🌾 KisanVaani
+              <span className="font-display text-2xl text-gold font-bold flex items-center gap-2">
+                <Sprout size={22} />
+                KisanVaani
               </span>
               <span className="text-cream/60 text-xs hidden sm:block">
                 AI Advisory for Every Farm
@@ -60,10 +63,7 @@ export default function Navbar() {
 
           {/* CTA Button */}
           <div className="hidden md:block">
-            <a
-              href="#demo"
-              className="bg-gold text-forest font-semibold px-6 py-2.5 rounded-full hover:bg-gold/90 hover:scale-105 transition-all duration-200 text-sm inline-block"
-            >
+            <a href="#demo" className={cn(buttonVariants({ size: 'default' }), 'text-sm')}>
               Try the Demo
             </a>
           </div>
@@ -98,13 +98,15 @@ export default function Navbar() {
                   {link.label}
                 </a>
               ))}
-              <a
-                href="#demo"
-                onClick={() => setMobileMenuOpen(false)}
-                className="block bg-gold text-forest font-semibold px-6 py-3 rounded-full hover:bg-gold/90 transition-colors text-center mt-4"
-              >
-                Try the Demo
-              </a>
+              <div className="mt-4">
+                <a
+                  href="#demo"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(buttonVariants({}), 'w-full text-center')}
+                >
+                  Try the Demo
+                </a>
+              </div>
             </div>
           </motion.div>
         )}

@@ -11,11 +11,20 @@ function getPrisma(): PrismaClient {
   return prisma;
 }
 
-const apiKey = process.env.MISTRAL_API_KEY || '';
-const client = new Mistral({ apiKey });
-
 export async function POST(req: Request) {
   try {
+    const mistralApiKey = process.env.MISTRAL_API_KEY || '';
+    if (!mistralApiKey || mistralApiKey.includes('your_')) {
+      return NextResponse.json(
+        {
+          error: 'MISTRAL_API_KEY is missing or not configured in frontend/.env.local',
+          success: false,
+        },
+        { status: 500 }
+      );
+    }
+    const client = new Mistral({ apiKey: mistralApiKey });
+
     const body = await req.json();
     const { transcript, userId = 'default_user', farmerId = 'farmer-001', language = 'en-IN', history = [] } = body;
 
@@ -72,7 +81,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ reply, language, audio: audioBase64, endCall, success: true });
 
   } catch (error: any) {
-    console.error('[API] ❌ Error:', error?.message || error);
-    return NextResponse.json({ error: error?.message || 'Internal Server Error', success: false }, { status: 500 });
+    const message = error?.message || 'Internal Server Error';
+    const isMistralUnauthorized =
+      typeof message === 'string' &&
+      message.includes('Status 401') &&
+      message.toLowerCase().includes('unauthorized');
+
+    console.error('[API] ❌ Error:', message);
+
+    if (isMistralUnauthorized) {
+      return NextResponse.json(
+        {
+          error: 'Mistral authentication failed. Please verify MISTRAL_API_KEY in frontend/.env.local',
+          success: false,
+        },
+        { status: 401 }
+      );
+    }
+
+    return NextResponse.json({ error: message, success: false }, { status: 500 });
   }
 }

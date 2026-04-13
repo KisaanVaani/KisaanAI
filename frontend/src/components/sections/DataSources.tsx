@@ -2,9 +2,11 @@
 
 import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
+import { BarChart3, CloudSun, Leaf, type LucideIcon, Microscope } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface DataCardProps {
-  icon: string
+  icon: LucideIcon
   name: string
   color: string
   borderColor: string
@@ -15,6 +17,7 @@ interface DataCardProps {
 function DataCard({ icon, name, color, borderColor, items, delay }: DataCardProps) {
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-100px' })
+  const Icon = icon
 
   return (
     <motion.div
@@ -23,18 +26,26 @@ function DataCard({ icon, name, color, borderColor, items, delay }: DataCardProp
       animate={inView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.6, delay }}
       whileHover={{ y: -4, transition: { duration: 0.2 } }}
-      className={`bg-white/5 border ${borderColor} border-l-4 rounded-2xl p-8 backdrop-blur-sm hover:border-opacity-100 transition-all duration-300`}
+      className="h-full"
     >
-      <div className="text-5xl mb-4">{icon}</div>
-      <h3 className={`font-display text-2xl font-bold ${color} mb-4`}>{name}</h3>
-      <ul className="space-y-2">
-        {items.map((item, idx) => (
-          <li key={idx} className="text-cream/70 text-sm flex items-start">
-            <span className={`${color} mr-2 mt-1`}>•</span>
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
+      <Card className={`h-full border ${borderColor} border-l-4 bg-white/[0.03]`}>
+        <CardHeader>
+          <div className={`mb-2 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/10 ${color}`}>
+            <Icon size={20} />
+          </div>
+          <CardTitle className={`font-display text-2xl ${color}`}>{name}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2">
+            {items.map((item, idx) => (
+              <li key={idx} className="text-cream/70 text-sm flex items-start">
+                <span className={`${color} mr-2 mt-1`}>•</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
     </motion.div>
   )
 }
@@ -45,7 +56,7 @@ export default function DataSources() {
 
   const dataSources = [
     {
-      icon: '🌱',
+      icon: Leaf,
       name: 'AgriStack',
       color: 'text-green-400',
       borderColor: 'border-green-500',
@@ -57,7 +68,7 @@ export default function DataSources() {
       delay: 0,
     },
     {
-      icon: '🌦️',
+      icon: CloudSun,
       name: 'IMD / OpenWeather',
       color: 'text-blue-400',
       borderColor: 'border-blue-500',
@@ -69,7 +80,7 @@ export default function DataSources() {
       delay: 0.1,
     },
     {
-      icon: '🧪',
+      icon: Microscope,
       name: 'ICAR / FASAL',
       color: 'text-amber-400',
       borderColor: 'border-amber-500',
@@ -81,7 +92,7 @@ export default function DataSources() {
       delay: 0.2,
     },
     {
-      icon: '📊',
+      icon: BarChart3,
       name: 'Agmarknet',
       color: 'text-red-400',
       borderColor: 'border-red-500',

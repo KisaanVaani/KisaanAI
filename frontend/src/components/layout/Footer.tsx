@@ -1,6 +1,6 @@
 'use client'
 
-import { Github } from 'lucide-react'
+import { Github, Sprout } from 'lucide-react'
 
 export default function Footer() {
   const currentYear = new Date().getFullYear()
@@ -12,8 +12,9 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-center mb-8">
           {/* Logo */}
           <div className="flex flex-col text-center md:text-left">
-            <span className="font-display text-2xl text-gold font-bold">
-              🌾 KisanVaani
+            <span className="font-display text-2xl text-gold font-bold inline-flex items-center gap-2 justify-center md:justify-start">
+              <Sprout size={20} />
+              KisanVaani
             </span>
             <span className="text-cream/50 text-xs mt-1">
               AI Advisory for Every Farm
@@ -66,7 +67,7 @@ export default function Footer() {
         {/* Bottom Row */}
         <div className="border-t border-cream/10 pt-8 text-center">
           <p className="text-cream/40 text-sm">
-            Built for Bharat 🇮🇳 · &copy; {currentYear} KisanVaani · Empowering Farmers with AI
+            Built for Bharat · &copy; {currentYear} KisanVaani · Empowering Farmers with AI
           </p>
         </div>
       </div>

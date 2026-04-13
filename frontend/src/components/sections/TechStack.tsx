@@ -2,6 +2,8 @@
 
 import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
+import { Bot, Mic, type LucideIcon, Network } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface TechItemProps {
   name: string
@@ -21,7 +23,7 @@ function TechItem({ name, description }: TechItemProps) {
 }
 
 interface TechColumnProps {
-  icon: string
+  icon: LucideIcon
   title: string
   items: TechItemProps[]
   delay: number
@@ -30,6 +32,7 @@ interface TechColumnProps {
 function TechColumn({ icon, title, items, delay }: TechColumnProps) {
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-100px' })
+  const Icon = icon
 
   return (
     <motion.div
@@ -37,17 +40,23 @@ function TechColumn({ icon, title, items, delay }: TechColumnProps) {
       initial={{ opacity: 0, y: 30 }}
       animate={inView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.6, delay }}
-      className="bg-white rounded-2xl p-8 shadow-sm border border-forest/10 hover:shadow-xl hover:border-forest/20 transition-all duration-300"
+      className="h-full"
     >
-      <div className="mb-6">
-        <div className="text-5xl mb-3">{icon}</div>
-        <h3 className="font-display text-2xl font-bold text-forest">{title}</h3>
-      </div>
-      <div className="space-y-6">
-        {items.map((item, idx) => (
-          <TechItem key={idx} {...item} />
-        ))}
-      </div>
+      <Card className="h-full border-forest/10 bg-white shadow-sm hover:shadow-xl hover:border-forest/20 transition-all duration-300">
+        <CardHeader>
+          <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-forest/10 text-forest">
+            <Icon size={22} />
+          </div>
+          <CardTitle className="font-display text-2xl text-forest">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            {items.map((item, idx) => (
+              <TechItem key={idx} {...item} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </motion.div>
   )
 }
@@ -58,7 +67,7 @@ export default function TechStack() {
 
   const techColumns = [
     {
-      icon: '🎙️',
+      icon: Mic,
       title: 'Voice AI Layer',
       items: [
         {
@@ -77,7 +86,7 @@ export default function TechStack() {
       delay: 0,
     },
     {
-      icon: '⚙️',
+      icon: Network,
       title: 'Orchestration Layer',
       items: [
         {
@@ -96,7 +105,7 @@ export default function TechStack() {
       delay: 0.1,
     },
     {
-      icon: '🧠',
+      icon: Bot,
       title: 'AI Reasoning Layer',
       items: [
         {
@@ -152,15 +161,15 @@ export default function TechStack() {
         >
           <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-forest/5 border border-forest/10">
             <span className="text-forest font-semibold text-sm">
-              ⚡ Sub-2-second latency
+              Sub-2-second latency
             </span>
             <span className="text-charcoal/40">•</span>
             <span className="text-forest font-semibold text-sm">
-              🌐 22+ languages
+              22+ languages
             </span>
             <span className="text-charcoal/40">•</span>
             <span className="text-forest font-semibold text-sm">
-              🔒 Secure & scalable
+              Secure and scalable
             </span>
           </div>
         </motion.div>

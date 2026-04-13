@@ -1,7 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Play } from 'lucide-react'
+import { PhoneCall, Play, Sparkles } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function Hero() {
   const container = {
@@ -35,9 +38,10 @@ export default function Hero() {
           >
             {/* Floating Badge */}
             <motion.div variants={item}>
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gold/30 bg-gold/10 text-gold text-xs font-medium">
-                ⚡ Powered by Mistral AI + Sarvam STT/TTS
-              </span>
+              <Badge className="gap-2 px-4 py-2 text-xs">
+                <Sparkles size={14} />
+                Powered by Mistral AI + Sarvam STT/TTS
+              </Badge>
             </motion.div>
 
             {/* Headline */}
@@ -59,13 +63,14 @@ export default function Hero() {
             <motion.div variants={item} className="flex flex-col sm:flex-row gap-4">
               <a
                 href="#demo"
-                className="bg-gold text-forest font-bold rounded-full px-8 py-4 hover:scale-105 transition-transform duration-200 text-center text-lg shadow-xl inline-flex items-center justify-center gap-2"
+                className={cn(buttonVariants({ variant: 'default', size: 'lg' }), 'font-bold shadow-xl')}
               >
+                <PhoneCall size={18} />
                 Try Phone Simulator
               </a>
               <a
                 href="#demo"
-                className="border-2 border-cream/30 text-cream rounded-full px-8 py-4 hover:bg-cream/10 transition-colors duration-200 text-center text-lg inline-flex items-center justify-center gap-2"
+                className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }))}
               >
                 <Play size={20} />
                 Watch Demo
@@ -140,7 +145,7 @@ export default function Hero() {
                     fontSize="18"
                     fontWeight="bold"
                   >
-                    📞 Calling...
+                    Calling...
                   </text>
                   <text
                     x="100"

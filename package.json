@@ -1,1 +1,14 @@
-{"name": "kisaan-root", "version": "1.0.0", "private": true, "scripts": { "dev": "cd frontend && npm run dev" }, "dependencies": { "concurrently": "^8.2.2" }}
+{
+  "name": "kisaan-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "start:easy": "bash ./scripts/run-project.sh"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "concurrently": "^8.2.2",
+    "gsap": "^3.14.2"
+  }
+}

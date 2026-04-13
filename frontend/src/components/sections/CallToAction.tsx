@@ -2,7 +2,7 @@
 
 import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { Github, Calendar } from 'lucide-react'
+import { Calendar, Github, Sparkles } from 'lucide-react'
 
 export default function CallToAction() {
   const ref = useRef(null)
@@ -27,7 +27,10 @@ export default function CallToAction() {
           transition={{ delay: 0.2, duration: 0.6 }}
           className="text-gold/60 tracking-widest text-sm mb-6 font-medium"
         >
-          — BUILT FOR BHARAT 🇮🇳 —
+          <span className="inline-flex items-center gap-2">
+            <Sparkles size={14} />
+            BUILT FOR BHARAT
+          </span>
         </motion.p>
 
         {/* Headline */}
