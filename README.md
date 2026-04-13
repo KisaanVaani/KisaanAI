@@ -1,37 +1,29 @@
-# KisaanAI – Agricultural Voice Assistant
+# KisaanAI
 
-KisaanAI is a voice-first, multi-language agricultural assistant that generates contextual farming advice using **Mistral AI** (LLM), weather/market/soil signals, and optional **Sarvam AI** text-to-speech.
+Voice-first agricultural assistant for Indian farmers, powered by Mistral AI, live context data, and optional Sarvam TTS.
 
-This repository is a **monorepo**:
-- **`frontend/`**: Next.js app (UI + `POST /api/chat`)
-- **`backend/`**: shared orchestration + data utilities + Prisma schema + Vitest tests
+## What This Project Includes
 
-### Features
+- `frontend/` - Next.js app (UI + API routes)
+- `backend/` - shared orchestration logic, Prisma, tests
+- `scripts/run-project.sh` - one-command local setup + run
 
-- **Voice-first UI**: browser speech recognition + audio playback
-- **Context-aware advice**: combines farmer + weather + market + soil context before calling the LLM
-- **Multi-language**: designed for Indian languages (Hindi/Kannada/English)
-- **Local persistence**: SQLite via Prisma (dev-friendly)
+## Core Features
 
-### Project structure
+- Voice-first interaction flow
+- Context-aware crop guidance (weather, market, soil context)
+- Multi-language conversation support
+- Local persistence with Prisma + SQLite
+- Built-in API health check endpoint
 
-```
-KisaanAI/
-├── frontend/              # Next.js app (runs the dev server)
-├── backend/               # shared logic + prisma + tests
-├── README-STRUCTURE.md    # monorepo notes
-├── API-INTEGRATION.md     # integration details
-├── TEST-GUIDE.md          # test suite docs
-└── README.md              # you are here
-```
+## Quick Start
 
-### Quickstart (local)
+### 1) Prerequisites
 
-**Prereqs**
-- Node.js **18+**
+- Node.js 18+
 - npm
 
-**Install**
+### 2) Install dependencies
 
 ```bash
 npm install
@@ -39,20 +31,26 @@ cd frontend && npm install
 cd ../backend && npm install
 ```
 
-**Environment variables**
+### 3) Configure environment
 
-The dev server is started from `frontend/`, so put your runtime env in **`frontend/.env.local`**:
+Create `frontend/.env.local`:
 
 ```bash
 cd frontend
 cp .env.example .env.local
 ```
 
-At minimum, set:
-- `MISTRAL_API_KEY` (required)
-- `SARVAM_API_KEY` (optional, for TTS)
+Required:
 
-**Prisma (first time)**
+- `MISTRAL_API_KEY`
+
+Optional:
+
+- `SARVAM_API_KEY`
+- `DATABASE_URL`
+- Weather provider keys
+
+### 4) Prepare Prisma
 
 ```bash
 cd ../backend
@@ -60,43 +58,64 @@ npm run prisma:generate
 npm run prisma:migrate
 ```
 
-**Run**
+### 5) Run locally
 
-From the repo root:
+From repo root:
 
 ```bash
 npm run dev
 ```
 
-App will be at `http://localhost:3000` and the API at `http://localhost:3000/api/chat`.
+App: `http://localhost:3000`  
+Chat API: `http://localhost:3000/api/chat`  
+Health API: `http://localhost:3000/api/health`
 
-### Useful commands
+## Easy One-Command Run
 
-- **Dev server**: `npm run dev` (runs `frontend`)
-- **Easy one-command runner**: `npm run start:easy`
-- **Frontend build**: `cd frontend && npm run build`
-- **Frontend lint**: `cd frontend && npm run lint`
-- **Backend tests**: `cd backend && npm test`
-- **Backend coverage**: `cd backend && npm run test:coverage`
-
-### Easy run script
-
-If you want one command for first-time setup + run:
+Use this for first-time local setup:
 
 ```bash
 npm run start:easy
 ```
 
-This script:
-- installs dependencies when `node_modules` is missing
-- creates `frontend/.env.local` from `frontend/.env.example` if needed
-- runs Prisma generate + DB push in `backend/`
-- starts the dev server
+It will:
 
-### Documentation
+- install missing dependencies
+- create `frontend/.env.local` if missing
+- run Prisma generate + DB push
+- start the frontend dev server
 
-- **Frontend**: `frontend/README.md`
-- **Backend**: `backend/README.md`
-- **Repo structure**: `README-STRUCTURE.md`
-- **API integration notes**: `API-INTEGRATION.md`
-- **Test suite**: `TEST-GUIDE.md`
+## Health Check
+
+`GET /api/health` validates runtime configuration and returns:
+
+- overall readiness (`ok`, `ready`)
+- missing required env vars
+- masked env preview for required/optional keys
+
+Status codes:
+
+- `200` when required keys are configured
+- `503` when required keys are missing
+
+## Common Commands
+
+- `npm run dev` - start frontend dev server from repo root
+- `npm run start:easy` - setup + run
+- `cd frontend && npm run build` - production build
+- `cd backend && npm test` - backend tests
+- `cd backend && npm run test:coverage` - coverage
+
+## Troubleshooting
+
+- `401 Unauthorized` on chat: verify `MISTRAL_API_KEY` in `frontend/.env.local`
+- Missing chunk / `Cannot find module './xxx.js'`: stop dev server, delete `frontend/.next`, restart
+- `EMFILE: too many open files`: restart and use the existing polling-based dev script
+
+## Additional Docs
+
+- `frontend/README.md`
+- `backend/README.md`
+- `README-STRUCTURE.md`
+- `API-INTEGRATION.md`
+- `TEST-GUIDE.md`
